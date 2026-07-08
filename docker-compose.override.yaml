@@ -1,0 +1,16 @@
+services:
+  api:
+    cap_add:
+      - SYS_PTRACE
+    environment:
+      # Object storage moved from the bundled local MinIO container to a
+      # private GCS bucket (dograh-voice-audio-kumuda-d2c11), accessed via
+      # GCS's S3-compatible interoperability API with HMAC keys. Bucket has
+      # no public access; playback URLs are real presigned links (see the
+      # aget_signed_url patch in services/filesystem/minio.py).
+      MINIO_ENDPOINT: "storage.googleapis.com"
+      MINIO_PUBLIC_ENDPOINT: "https://storage.googleapis.com"
+      MINIO_ACCESS_KEY: ${GCS_ACCESS_KEY_ID}
+      MINIO_SECRET_KEY: ${GCS_ACCESS_KEY_SECRET}
+      MINIO_BUCKET: "dograh-voice-audio-kumuda-d2c11"
+      MINIO_SECURE: "true"

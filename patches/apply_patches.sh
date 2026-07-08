@@ -116,6 +116,34 @@ else:
     print('  patch applied')
 "
 
+echo "=== Patch 4: MinIO client explicit region (fixes AccessDenied against GCS interop) ==="
+docker exec -u root dograh-api-1 python3 -c "
+path = '/app/api/services/filesystem/minio.py'
+with open(path) as f:
+    content = f.read()
+
+if 'PATCHED: explicit region' in content:
+    print('  already patched, skipping')
+else:
+    old = '''        # Client for internal operations (uploads, etc.)
+        self.client = Minio(
+            endpoint, access_key=access_key, secret_key=secret_key, secure=secure
+        )'''
+    new = '''        # Client for internal operations (uploads, etc.)
+        # PATCHED: explicit region avoids minio-py auto-detecting the bucket
+        # region via GetBucketLocation, which breaks SigV4 signing against
+        # GCS'"'"'s S3 interop endpoint and causes every request to fail with
+        # a generic AccessDenied (regardless of correct HMAC creds/IAM).
+        self.client = Minio(
+            endpoint, access_key=access_key, secret_key=secret_key, secure=secure, region='"'"'us-east-1'"'"'
+        )'''
+    assert content.count(old) == 1, f'expected 1 occurrence, found {content.count(old)}'
+    content = content.replace(old, new)
+    with open(path, 'w') as f:
+        f.write(content)
+    print('  patch applied')
+"
+
 echo "=== Restarting dograh-api-1 to load patches ==="
 docker restart dograh-api-1
 for i in $(seq 1 20); do
