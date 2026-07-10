@@ -144,6 +144,70 @@ else:
     print('  patch applied')
 "
 
+echo "=== Patch 5: MinIO presigned PUT URLs (bucket is private, no anonymous-write policy) ==="
+docker exec -u root dograh-api-1 python3 -c "
+path = '/app/api/services/filesystem/minio.py'
+with open(path) as f:
+    content = f.read()
+
+if 'PATCHED: generate a real presigned PUT URL' in content:
+    print('  already patched, skipping')
+else:
+    old_method = '''    async def aget_presigned_put_url(
+        self,
+        file_path: str,
+        expiration: int = 900,
+        content_type: str = \"text/csv\",
+        max_size: int = 10_485_760,
+    ) -> Optional[str]:
+        \"\"\"Generate an unsigned URL for direct file upload.
+
+        For local MinIO development with anonymous upload enabled, we return
+        a simple unsigned URL instead of a presigned URL. This avoids signature
+        mismatch issues when the internal endpoint (minio:9000) differs from
+        the public endpoint (localhost:9000).
+
+        The bucket policy allows anonymous s3:PutObject, so no signature is needed.
+        \"\"\"
+        try:
+            url = f\"{self.public_endpoint}/{self.bucket_name}/{file_path}\"
+            logger.debug(f\"Generated unsigned upload URL: {url}\")
+            return url
+        except Exception as e:
+            logger.error(f\"Error generating MinIO upload URL: {e}\")
+            return None'''
+
+    new_method = '''    async def aget_presigned_put_url(
+        self,
+        file_path: str,
+        expiration: int = 900,
+        content_type: str = \"text/csv\",
+        max_size: int = 10_485_760,
+    ) -> Optional[str]:
+        # PATCHED: generate a real presigned PUT URL (bucket is private, no
+        # anonymous-write policy) instead of an unsigned link.
+        try:
+            def _presign():
+                return self.client.presigned_put_object(
+                    self.bucket_name, file_path, expires=timedelta(seconds=expiration)
+                )
+            return await asyncio.to_thread(_presign)
+        except Exception as e:
+            logger.error(f\"Error generating MinIO presigned PUT URL: {e}\")
+            return None'''
+
+    assert old_method in content, 'aget_presigned_put_url method not found verbatim - check for drift'
+    content = content.replace(old_method, new_method)
+    with open(path, 'w') as f:
+        f.write(content)
+    print('  patch applied')
+"
+
+echo "=== Patch 6: turn-detection hang fix (empty Google STT finals never closed a turn) ==="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+docker cp "$SCRIPT_DIR/patch6_turn_detection.py" dograh-api-1:/tmp/patch6_turn_detection.py
+docker exec -u root dograh-api-1 python3 /tmp/patch6_turn_detection.py
+
 echo "=== Restarting dograh-api-1 to load patches ==="
 docker restart dograh-api-1
 for i in $(seq 1 20); do
