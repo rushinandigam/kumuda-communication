@@ -1,12 +1,17 @@
 #!/bin/bash
 # Re-applies live patches to third-party packages inside dograh-api-1.
-# These patches live only in the container's writable layer and are lost
-# whenever the container is recreated (VM reboot recovery, image update,
-# --force-recreate, or any `docker compose up` that changes its config).
-# Run this once after every fresh container creation.
+# These patches modify pip-installed packages (/opt/venv/) and are lost
+# whenever the container is recreated. Run once after every fresh creation.
+#
+# Patches that modify OUR OWN source code (api/) are now baked into the
+# git source and no longer need runtime patching:
+#   - MinIO presigned URLs + region (minio.py)
+#   - SpeechTimeout user_speech_timeout=2.5 (run_pipeline.py)
+#   - Empty-transcript "didn't catch that" handler (run_pipeline.py)
+#   - Knowledge base tool gating/justification/silent-calls (knowledge_base.py)
 set -e
 
-echo "=== Patch 1: Google STT enable_automatic_punctuation default (many languages/models don't support it) ==="
+echo "=== Patch 1: Google STT enable_automatic_punctuation default ==="
 docker exec -u root dograh-api-1 python3 -c "
 path = '/opt/venv/lib/python3.13/site-packages/pipecat/services/google/stt.py'
 with open(path) as f:
@@ -28,7 +33,7 @@ else:
     print('  patch applied')
 "
 
-echo "=== Patch 2: Deepgram STT legacy websockets client (blocks event loop under backpressure) ==="
+echo "=== Patch 2: Deepgram STT legacy websockets client ==="
 docker exec -u root dograh-api-1 python3 -c "
 path = '/opt/venv/lib/python3.13/site-packages/deepgram/listen/v1/raw_client.py'
 with open(path) as f:
@@ -55,94 +60,10 @@ else:
     print('  already patched (or import block not found), skipping')
 "
 
-echo "=== Patch 3: MinIO filesystem presigned URLs (bucket is private, no public read policy) ==="
-docker exec -u root dograh-api-1 python3 -c "
-path = '/app/api/services/filesystem/minio.py'
-with open(path) as f:
-    content = f.read()
-
-if 'PATCHED: generate a real presigned URL' in content:
-    print('  already patched, skipping')
-else:
-    if 'from datetime import timedelta' not in content:
-        content = content.replace(
-            'import asyncio\nimport io\nimport json',
-            'import asyncio\nimport io\nimport json\nfrom datetime import timedelta',
-            1,
-        )
-
-    old_method = '''    async def aget_signed_url(
-        self,
-        file_path: str,
-        expiration: int = 3600,
-        force_inline: bool = False,
-        use_internal_endpoint: bool = False,
-    ) -> Optional[str]:
-        try:
-            if use_internal_endpoint:
-                protocol = \"https\" if self.secure else \"http\"
-                base = f\"{protocol}://{self.endpoint}\"
-            else:
-                base = self.public_endpoint
-            return f\"{base}/{self.bucket_name}/{file_path}\"
-        except Exception as e:
-            logger.error(f\"Error generating MinIO URL: {e}\")
-            return None'''
-
-    new_method = '''    async def aget_signed_url(
-        self,
-        file_path: str,
-        expiration: int = 3600,
-        force_inline: bool = False,
-        use_internal_endpoint: bool = False,
-    ) -> Optional[str]:
-        # PATCHED: generate a real presigned URL (bucket is private, no public
-        # read policy) instead of an unsigned link. use_internal_endpoint is
-        # ignored now since the SDK client already knows its own endpoint.
-        try:
-            def _presign():
-                return self.client.presigned_get_object(
-                    self.bucket_name, file_path, expires=timedelta(seconds=expiration)
-                )
-            return await asyncio.to_thread(_presign)
-        except Exception as e:
-            logger.error(f\"Error generating MinIO presigned URL: {e}\")
-            return None'''
-
-    assert old_method in content, 'aget_signed_url method not found verbatim - check for drift'
-    content = content.replace(old_method, new_method)
-    with open(path, 'w') as f:
-        f.write(content)
-    print('  patch applied')
-"
-
-echo "=== Patch 4: MinIO client explicit region (fixes AccessDenied against GCS interop) ==="
-docker exec -u root dograh-api-1 python3 -c "
-path = '/app/api/services/filesystem/minio.py'
-with open(path) as f:
-    content = f.read()
-
-if 'PATCHED: explicit region' in content:
-    print('  already patched, skipping')
-else:
-    old = '''        # Client for internal operations (uploads, etc.)
-        self.client = Minio(
-            endpoint, access_key=access_key, secret_key=secret_key, secure=secure
-        )'''
-    new = '''        # Client for internal operations (uploads, etc.)
-        # PATCHED: explicit region avoids minio-py auto-detecting the bucket
-        # region via GetBucketLocation, which breaks SigV4 signing against
-        # GCS'"'"'s S3 interop endpoint and causes every request to fail with
-        # a generic AccessDenied (regardless of correct HMAC creds/IAM).
-        self.client = Minio(
-            endpoint, access_key=access_key, secret_key=secret_key, secure=secure, region='"'"'us-east-1'"'"'
-        )'''
-    assert content.count(old) == 1, f'expected 1 occurrence, found {content.count(old)}'
-    content = content.replace(old, new)
-    with open(path, 'w') as f:
-        f.write(content)
-    print('  patch applied')
-"
+echo "=== Patch 6 (A+B): Google STT empty-transcript + turn-stop hang fix ==="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+docker cp "$SCRIPT_DIR/patch6_turn_detection.py" dograh-api-1:/tmp/patch6_turn_detection.py
+docker exec -u root dograh-api-1 python3 /tmp/patch6_turn_detection.py
 
 echo "=== Restarting dograh-api-1 to load patches ==="
 docker restart dograh-api-1

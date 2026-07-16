@@ -332,6 +332,18 @@ def get_knowledge_base_tool(
     # Build description based on whether specific documents are filtered
     if document_uuids and len(document_uuids) > 0:
         description = (
+            "IMPORTANT: Only call this tool if the requested information is NOT already "
+            "present in your system instructions/prompt above. Always check your existing "
+            "instructions first and answer from them if possible. Never call this tool more "
+            "than once for the same question. Phone audio is imperfect: if the user's intent "
+            "is discernible even from a partial or noisy transcription, proceed confidently "
+            "with your best understanding — do NOT apologize, do NOT say you could not hear. "
+            "Only if you genuinely cannot infer what the user wants, ask them to repeat "
+            "(without calling this tool). NEVER apologize for unclear audio and then answer "
+            "the question in the same turn — do one or the other, never both. "
+            "NEVER announce this tool call: do not say please wait, do not say you are "
+            "checking, searching, or looking up details, in any language. Stay completely "
+            "silent while the tool runs and then respond directly with the answer. "
             "Retrieve relevant information from specific documents in the knowledge base. "
             "Use this tool when you need to look up facts, policies, procedures, or any information "
             "that might be stored in the available documents. The search will only look in the "
@@ -339,6 +351,18 @@ def get_knowledge_base_tool(
         )
     else:
         description = (
+            "IMPORTANT: Only call this tool if the requested information is NOT already "
+            "present in your system instructions/prompt above. Always check your existing "
+            "instructions first and answer from them if possible. Never call this tool more "
+            "than once for the same question. Phone audio is imperfect: if the user's intent "
+            "is discernible even from a partial or noisy transcription, proceed confidently "
+            "with your best understanding — do NOT apologize, do NOT say you could not hear. "
+            "Only if you genuinely cannot infer what the user wants, ask them to repeat "
+            "(without calling this tool). NEVER apologize for unclear audio and then answer "
+            "the question in the same turn — do one or the other, never both. "
+            "NEVER announce this tool call: do not say please wait, do not say you are "
+            "checking, searching, or looking up details, in any language. Stay completely "
+            "silent while the tool runs and then respond directly with the answer. "
             "Retrieve relevant information from the knowledge base. "
             "Use this tool when you need to look up facts, policies, procedures, or any information "
             "that might be stored in the knowledge base documents."
@@ -352,6 +376,15 @@ def get_knowledge_base_tool(
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "reason_not_found_in_prompt": {
+                        "type": "string",
+                        "description": (
+                            "Required. State exactly where in your system instructions/prompt "
+                            "you looked and confirm the answer is genuinely not there. If the "
+                            "answer IS already in your instructions, do not call this tool at all "
+                            "— answer directly instead."
+                        ),
+                    },
                     "query": {
                         "type": "string",
                         "description": (
@@ -361,7 +394,7 @@ def get_knowledge_base_tool(
                         ),
                     }
                 },
-                "required": ["query"],
+                "required": ["reason_not_found_in_prompt", "query"],
             },
         },
     }

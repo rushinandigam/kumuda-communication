@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse, urlunparse
 
@@ -154,7 +155,7 @@ def create_stt_service(
         if user_config.stt.model in DEEPGRAM_FLUX_MODELS:
             settings_kwargs = {
                 "model": user_config.stt.model,
-                "eot_timeout_ms": 3000,
+                "eot_timeout_ms": 1500,
                 "eot_threshold": 0.7,
                 "eager_eot_threshold": 0.5,
                 "keyterm": keyterms or [],
@@ -243,7 +244,7 @@ def create_stt_service(
             # same language hint subset as Deepgram Flux multilingual.
             settings_kwargs = {
                 "model": "flux-general-multi",
-                "eot_timeout_ms": 3000,
+                "eot_timeout_ms": 1500,
                 "eot_threshold": 0.7,
                 "eager_eot_threshold": 0.5,
                 "keyterm": keyterms or [],
@@ -440,7 +441,7 @@ def create_tts_service(
             settings=DeepgramTTSSettings(voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
         kwargs = {}
@@ -454,7 +455,7 @@ def create_tts_service(
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
             **kwargs,
         )
     elif user_config.tts.provider == ServiceProviders.GOOGLE.value:
@@ -479,7 +480,7 @@ def create_tts_service(
             settings=GoogleTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
         # Backward compatible with older configuration "Name - voice_id"
@@ -507,7 +508,7 @@ def create_tts_service(
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.CARTESIA.value:
         speed = getattr(user_config.tts, "speed", None)
@@ -535,7 +536,7 @@ def create_tts_service(
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.INWORLD.value:
         voice = getattr(user_config.tts, "voice", None) or "Ashley"
@@ -554,7 +555,7 @@ def create_tts_service(
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.DOGRAH.value:
         # Convert HTTP URL to WebSocket URL for TTS
@@ -570,7 +571,7 @@ def create_tts_service(
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.CAMB.value:
         from pipecat.services.camb.tts import CambTTSService
@@ -599,7 +600,7 @@ def create_tts_service(
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.RIME.value:
         speed = getattr(user_config.tts, "speed", None)
@@ -624,7 +625,7 @@ def create_tts_service(
             settings=RimeTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum for TTS
@@ -660,7 +661,7 @@ def create_tts_service(
             settings=SarvamTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.MINIMAX.value:
         group_id = getattr(user_config.tts, "group_id", None)
@@ -695,7 +696,7 @@ def create_tts_service(
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.AZURE_SPEECH.value:
         region = getattr(user_config.tts, "region", None) or "eastus"
@@ -716,7 +717,7 @@ def create_tts_service(
             settings=AzureTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     elif user_config.tts.provider == ServiceProviders.SMALLEST.value:
         language_code = getattr(user_config.tts, "language", None) or "en"
@@ -738,7 +739,7 @@ def create_tts_service(
             settings=settings_kwargs,
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            silence_time_s=0.3,
         )
     else:
         raise HTTPException(
@@ -890,6 +891,40 @@ def create_llm_service_from_provider(
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
 
 
+def _gemini_live_proactivity():
+    """Let Gemini Live decide NOT to respond to audio that doesn't merit a
+    response (noise, fragments, silence) instead of generating a repair
+    utterance like "didn't hear you, please repeat". Verified to connect on
+    Vertex us-east4 with gemini-live-2.5-flash-native-audio.
+    """
+    from google.genai.types import ProactivityConfig
+
+    return ProactivityConfig(proactive_audio=True)
+
+
+def _gemini_live_vad_params():
+    """Server-side VAD tuning for Gemini Live (it owns barge-in for these
+    services — see the realtime turn config in run_pipeline).
+
+    Defaults are tuned for handsets in noisy environments: HIGH start
+    sensitivity lets coughs/road noise open a user turn and cut the bot off
+    mid-answer, so require clearer speech to start a turn and more silence
+    to end one.
+    """
+    from google.genai.types import EndSensitivity, StartSensitivity
+
+    from pipecat.services.google.gemini_live.llm import GeminiVADParams
+
+    return GeminiVADParams(
+        start_sensitivity=StartSensitivity.START_SENSITIVITY_LOW,
+        end_sensitivity=EndSensitivity.END_SENSITIVITY_LOW,
+        prefix_padding_ms=500,
+        # Silence before the user's turn commits. Lower values reduce latency
+        # but risk premature commits on mid-sentence pauses. Tunable via env.
+        silence_duration_ms=int(os.getenv("GEMINI_VAD_SILENCE_MS", "500")),
+    )
+
+
 def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     """Create a realtime (speech-to-speech) LLM service that handles STT+LLM+TTS.
 
@@ -978,6 +1013,11 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         settings_kwargs = {
             "model": model,
             "voice": voice or "Puck",
+            "vad": _gemini_live_vad_params(),
+            "proactivity": _gemini_live_proactivity(),
+            # Default (~1.0) makes the agent chatty on phone calls: filler
+            # confirmations and unprompted repair utterances on noisy audio.
+            "temperature": 0.7,
         }
         if language:
             settings_kwargs["language"] = language
@@ -997,6 +1037,11 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         settings_kwargs = {
             "model": model,
             "voice": voice or "Charon",
+            "vad": _gemini_live_vad_params(),
+            "proactivity": _gemini_live_proactivity(),
+            # Default (~1.0) makes the agent chatty on phone calls: filler
+            # confirmations and unprompted repair utterances on noisy audio.
+            "temperature": 0.7,
         }
         if language:
             settings_kwargs["language"] = language

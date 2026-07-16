@@ -317,7 +317,7 @@ class CustomToolManager:
             handler = self._create_transfer_call_handler(tool, function_name)
         else:
             timeout_ms = ((tool.definition or {}).get("config", {}) or {}).get(
-                "timeout_ms", 5000
+                "timeout_ms", 2500
             )
             timeout_secs = float(timeout_ms) / 1000
             handler = self._create_http_tool_handler(tool, function_name)

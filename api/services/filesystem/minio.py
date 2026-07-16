@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+from datetime import timedelta
 from typing import Any, Dict, Optional
 
 from loguru import logger
@@ -50,8 +51,16 @@ class MinioFileSystem(BaseFileSystem):
         self.secret_key = secret_key
 
         # Client for internal operations (uploads, etc.)
+        # Explicit region avoids minio-py auto-detecting the bucket region via
+        # GetBucketLocation, which breaks SigV4 signing against GCS's S3
+        # interop endpoint and causes every request to fail with a generic
+        # AccessDenied (regardless of correct HMAC creds/IAM).
         self.client = Minio(
-            endpoint, access_key=access_key, secret_key=secret_key, secure=secure
+            endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=secure,
+            region="us-east-1",
         )
 
         # Ensure bucket exists and configure anonymous access (using internal client)
@@ -126,15 +135,18 @@ class MinioFileSystem(BaseFileSystem):
         force_inline: bool = False,
         use_internal_endpoint: bool = False,
     ) -> Optional[str]:
+        # Generates a real presigned URL (bucket is private, no public read
+        # policy) instead of an unsigned link. use_internal_endpoint is
+        # ignored since the SDK client already knows its own endpoint.
         try:
-            if use_internal_endpoint:
-                protocol = "https" if self.secure else "http"
-                base = f"{protocol}://{self.endpoint}"
-            else:
-                base = self.public_endpoint
-            return f"{base}/{self.bucket_name}/{file_path}"
+            def _presign():
+                return self.client.presigned_get_object(
+                    self.bucket_name, file_path, expires=timedelta(seconds=expiration)
+                )
+
+            return await asyncio.to_thread(_presign)
         except Exception as e:
-            logger.error(f"Error generating MinIO URL: {e}")
+            logger.error(f"Error generating MinIO presigned URL: {e}")
             return None
 
     async def aget_file_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
@@ -163,21 +175,17 @@ class MinioFileSystem(BaseFileSystem):
         content_type: str = "text/csv",
         max_size: int = 10_485_760,
     ) -> Optional[str]:
-        """Generate an unsigned URL for direct file upload.
-
-        For local MinIO development with anonymous upload enabled, we return
-        a simple unsigned URL instead of a presigned URL. This avoids signature
-        mismatch issues when the internal endpoint (minio:9000) differs from
-        the public endpoint (localhost:9000).
-
-        The bucket policy allows anonymous s3:PutObject, so no signature is needed.
-        """
+        # Generates a real presigned PUT URL (bucket is private, no
+        # anonymous-write policy) instead of an unsigned link.
         try:
-            url = f"{self.public_endpoint}/{self.bucket_name}/{file_path}"
-            logger.debug(f"Generated unsigned upload URL: {url}")
-            return url
+            def _presign():
+                return self.client.presigned_put_object(
+                    self.bucket_name, file_path, expires=timedelta(seconds=expiration)
+                )
+
+            return await asyncio.to_thread(_presign)
         except Exception as e:
-            logger.error(f"Error generating MinIO upload URL: {e}")
+            logger.error(f"Error generating MinIO presigned PUT URL: {e}")
             return None
 
     async def adownload_file(self, source_path: str, local_path: str) -> bool:

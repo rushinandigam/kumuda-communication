@@ -12,7 +12,7 @@ from loguru import logger
 from api.db import db_client
 from api.utils.credential_auth import build_auth_header
 
-PRE_CALL_FETCH_TIMEOUT_SECONDS = 10
+PRE_CALL_FETCH_TIMEOUT_SECONDS = 5
 
 
 def _extract_initial_context(response_data: Dict[str, Any]) -> Dict[str, Any]:

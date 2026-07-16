@@ -14,3 +14,16 @@ services:
       MINIO_SECRET_KEY: ${GCS_ACCESS_KEY_SECRET}
       MINIO_BUCKET: "dograh-voice-audio-kumuda-d2c11"
       MINIO_SECURE: "true"
+    # Storage is fully on GCS now; drop the hard dependency on the bundled
+    # local MinIO container (it's unused dead weight in this deployment).
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Never start the bundled local MinIO container — nothing writes to it
+  # anymore. Gated behind a profile that's never activated, rather than
+  # deleted, so `docker compose config` still shows why it's here.
+  minio:
+    profiles: ["disabled-unused-local-minio"]

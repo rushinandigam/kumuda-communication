@@ -16,8 +16,12 @@ Layers Dograh engine integration quirks onto upstream-pristine
 - **TTSSpeakFrame as greeting trigger.** The engine queues a TTSSpeakFrame
   to kick off the first response after node setup; the service intercepts
   it and runs the initial-context path.
+- **16 kHz input floor.** Gemini Live's native-audio models are trained on
+  16 kHz input; 8 kHz telephony audio sent at its wire rate is transcribed
+  as noise, so user audio below 16 kHz is upsampled before being sent.
 """
 
+import dataclasses
 from typing import Any
 
 from google.genai.types import Content, Part
@@ -27,6 +31,7 @@ from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
+from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
@@ -68,6 +73,10 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # Text greeting captured from the first TTSSpeakFrame while the Gemini
         # session is still connecting.
         self._pending_initial_greeting_text: str | None = None
+        # Upsamples narrowband (telephony) user audio to Gemini's 16 kHz
+        # native input rate. Stream resampler: keeps filter state across
+        # chunks, so it must only ever see one (in_rate, out_rate) pair.
+        self._user_audio_resampler = create_stream_resampler()
 
     # ------------------------------------------------------------------
     # Hooks from upstream GeminiLiveLLMService
@@ -174,6 +183,13 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
     async def _send_user_audio(self, frame):
         if self._user_is_muted:
             return
+        if frame.sample_rate and frame.sample_rate < 16000:
+            resampled = await self._user_audio_resampler.resample(
+                frame.audio, frame.sample_rate, 16000
+            )
+            # New frame rather than in-place mutation: the original keeps
+            # flowing to recording/buffer processors at the pipeline rate.
+            frame = dataclasses.replace(frame, audio=resampled, sample_rate=16000)
         await super()._send_user_audio(frame)
 
     # ------------------------------------------------------------------

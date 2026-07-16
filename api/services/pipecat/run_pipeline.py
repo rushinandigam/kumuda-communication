@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Optional
 
 from fastapi import HTTPException
@@ -6,6 +7,14 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
+from api.schemas.workflow_configurations import (
+    DEFAULT_MAX_CALL_DURATION_SECONDS,
+    DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
+    DEFAULT_SMART_TURN_STOP_SECS,
+    DEFAULT_TURN_START_MIN_WORDS,
+    DEFAULT_TURN_START_STRATEGY,
+)
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations import (
     IntegrationRuntimeContext,
@@ -35,6 +44,7 @@ from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
 from api.services.pipecat.realtime_feedback_events import (
     build_node_transition_event,
 )
+from api.services.pipecat.latency_breakdown_observer import LatencyBreakdownObserver
 from api.services.pipecat.realtime_feedback_observer import (
     RealtimeFeedbackObserver,
     register_turn_log_handlers,
@@ -65,6 +75,7 @@ from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -100,10 +111,12 @@ ensure_tracing()
 
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
-DEFAULT_TURN_START_STRATEGY = "default"
-DEFAULT_TURN_START_MIN_WORDS = 3
-DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5
-DEFAULT_SMART_TURN_STOP_SECS = 2.0
+
+# Override schema defaults with env vars for latency tuning without redeploy
+if os.getenv("PROVISIONAL_VAD_PAUSE_SECS"):
+    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = float(os.environ["PROVISIONAL_VAD_PAUSE_SECS"])
+if os.getenv("SMART_TURN_STOP_SECS"):
+    DEFAULT_SMART_TURN_STOP_SECS = float(os.environ["SMART_TURN_STOP_SECS"])
 
 
 def _resolve_user_turn_stop_timeout(
@@ -187,7 +200,7 @@ def _create_non_realtime_user_turn_stop_strategies(
             )
         ]
 
-    return [SpeechTimeoutUserTurnStopStrategy()]
+    return [SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=2.5)]
 
 
 def _create_realtime_user_turn_config(provider: str):
@@ -538,8 +551,8 @@ async def _run_pipeline_impl(
     run_configs = run_definition.workflow_configurations or {}
 
     # Extract configurations from the version's workflow_configurations
-    max_call_duration_seconds = 300  # Default 5 minutes
-    max_user_idle_timeout = 10.0  # Default 10 seconds
+    max_call_duration_seconds = DEFAULT_MAX_CALL_DURATION_SECONDS
+    max_user_idle_timeout = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     keyterms = None  # Dictionary words for STT boosting
 
     if run_configs:
@@ -870,6 +883,22 @@ async def _run_pipeline_impl(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
+    @user_context_aggregator.event_handler("on_user_turn_inference_triggered")
+    async def on_user_turn_inference_triggered(aggregator, strategy):
+        if not getattr(strategy, "text", ""):
+            message = {
+                "role": "user",
+                "content": (
+                    "The system did not catch what the user said (no speech "
+                    "was transcribed). Politely say you didn't catch that and "
+                    "ask them to repeat, in the language the user has been "
+                    "speaking so far."
+                ),
+            }
+            await aggregator.push_frame(
+                LLMMessagesAppendFrame([message], run_llm=True)
+            )
+
     voicemail_detector = None
     recording_router = None
 
@@ -991,6 +1020,13 @@ async def _run_pipeline_impl(
         logs_buffer=in_memory_logs_buffer,
     )
     task.add_observer(feedback_observer)
+
+    # Add per-stage latency breakdown observer
+    latency_observer = LatencyBreakdownObserver(
+        ws_sender=ws_sender,
+        logs_buffer=in_memory_logs_buffer,
+    )
+    task.add_observer(latency_observer)
 
     # Register latency observer to log user-to-bot response latency
     if task.user_bot_latency_observer:
