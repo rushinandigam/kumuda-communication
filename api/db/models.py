@@ -692,6 +692,14 @@ class CampaignModel(Base):
         Integer, ForeignKey("telephony_configurations.id"), nullable=True
     )
 
+    # Channel — "telephony" (default/legacy) or "messaging" (WhatsApp)
+    channel = Column(
+        String(16), nullable=False, default="telephony", server_default=text("'telephony'")
+    )
+    messaging_configuration_id = Column(
+        Integer, ForeignKey("messaging_configurations.id"), nullable=True
+    )
+
     # Source configuration
     source_type = Column(String, nullable=False, default="csv")
     source_id = Column(String, nullable=False)  # CSV file key
@@ -1450,4 +1458,95 @@ class KnowledgeBaseChunkModel(Base):
             postgresql_with={"lists": 100},  # Adjust based on dataset size
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
+    )
+
+
+class MessagingConfigurationModel(Base):
+    __tablename__ = "messaging_configurations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(64), nullable=False)
+    provider = Column(String(32), nullable=False, default="whatsapp_cloud")
+    credentials = Column(JSON, nullable=False, default=dict)
+    inbound_workflow_id = Column(
+        Integer, ForeignKey("workflows.id", ondelete="SET NULL"), nullable=True
+    )
+    is_default = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    webhook_verify_token = Column(String(128), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    organization = relationship("OrganizationModel")
+    inbound_workflow = relationship("WorkflowModel")
+    sessions = relationship(
+        "WhatsAppSessionModel",
+        back_populates="messaging_configuration",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "name", name="uq_messaging_configurations_org_name"
+        ),
+        Index("ix_messaging_configurations_org", "organization_id"),
+        Index(
+            "uq_messaging_configurations_default",
+            "organization_id",
+            unique=True,
+            postgresql_where=text("is_default = true"),
+        ),
+    )
+
+
+class WhatsAppSessionModel(Base):
+    __tablename__ = "whatsapp_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    messaging_configuration_id = Column(
+        Integer,
+        ForeignKey("messaging_configurations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id = Column(
+        Integer, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    sender_phone_number = Column(String(20), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    auto_reply = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    last_message_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    messaging_configuration = relationship(
+        "MessagingConfigurationModel", back_populates="sessions"
+    )
+    organization = relationship("OrganizationModel")
+    workflow = relationship("WorkflowModel")
+    workflow_run = relationship("WorkflowRunModel")
+
+    __table_args__ = (
+        Index("ix_whatsapp_sessions_org", "organization_id"),
+        Index("ix_whatsapp_sessions_config", "messaging_configuration_id"),
+        Index(
+            "ix_whatsapp_sessions_sender_active",
+            "messaging_configuration_id",
+            "sender_phone_number",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+        ),
+        Index("ix_whatsapp_sessions_last_message", "last_message_at"),
     )

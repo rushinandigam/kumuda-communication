@@ -1,0 +1,216 @@
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from loguru import logger
+from pydantic import BaseModel
+
+from api.db import db_client
+from api.db.models import UserModel
+from api.services.auth.depends import get_user
+from api.services.integrations.whatsapp.webhook_handler import handle_incoming_message
+
+router = APIRouter(prefix="/integrations/whatsapp", tags=["whatsapp"])
+
+
+@router.get("/webhook")
+async def verify_webhook(
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_challenge: str = Query(None, alias="hub.challenge"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+):
+    """Meta webhook verification endpoint."""
+    if hub_mode == "subscribe" and hub_verify_token:
+        config = await db_client.get_messaging_configuration_by_phone_number_id(
+            hub_verify_token
+        )
+        if config and config.webhook_verify_token == hub_verify_token:
+            return int(hub_challenge)
+
+        # Fallback: try matching the verify token directly against any config
+        from sqlalchemy.future import select
+        from api.db.models import MessagingConfigurationModel
+
+        async with db_client.async_session() as session:
+            result = await session.execute(
+                select(MessagingConfigurationModel).where(
+                    MessagingConfigurationModel.webhook_verify_token == hub_verify_token
+                )
+            )
+            matching_config = result.scalars().first()
+            if matching_config:
+                return int(hub_challenge)
+
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+@router.post("/webhook")
+async def receive_webhook(request: Request):
+    """Process incoming WhatsApp messages from Meta webhook."""
+    payload = await request.json()
+    logger.debug(f"WhatsApp webhook received: {payload}")
+
+    try:
+        entry = payload.get("entry", [])
+        for e in entry:
+            changes = e.get("changes", [])
+            for change in changes:
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                metadata = value.get("metadata", {})
+                phone_number_id = metadata.get("phone_number_id")
+
+                if not phone_number_id:
+                    continue
+
+                for message in messages:
+                    if message.get("type") != "text":
+                        continue
+
+                    sender = message.get("from", "")
+                    text_body = message.get("text", {}).get("body", "")
+
+                    if not sender or not text_body:
+                        continue
+
+                    await handle_incoming_message(
+                        phone_number_id=phone_number_id,
+                        sender_phone=sender,
+                        message_text=text_body,
+                    )
+    except Exception as e:
+        logger.error(f"WhatsApp webhook processing error: {e}")
+
+    return {"status": "ok"}
+
+
+class WhatsAppSessionListResponse(BaseModel):
+    sessions: list
+
+
+class WhatsAppManualReplyRequest(BaseModel):
+    text: str
+
+
+class WhatsAppSessionUpdateRequest(BaseModel):
+    auto_reply: bool | None = None
+    is_active: bool | None = None
+
+
+@router.get("/sessions")
+async def list_whatsapp_sessions(
+    user: UserModel = Depends(get_user),
+    status: str = Query("active", regex="^(active|all)$"),
+):
+    sessions = await db_client.list_sessions(
+        organization_id=user.selected_organization_id,
+        active_only=(status == "active"),
+    )
+    return {"sessions": [_session_to_dict(s) for s in sessions]}
+
+
+@router.get("/sessions/{session_id}")
+async def get_whatsapp_session(session_id: int, user: UserModel = Depends(get_user)):
+    session = await db_client.get_session_by_id(
+        session_id=session_id, organization_id=user.selected_organization_id
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _session_to_dict(session)
+
+
+@router.get("/sessions/{session_id}/messages")
+async def get_whatsapp_session_messages(
+    session_id: int, user: UserModel = Depends(get_user)
+):
+    session = await db_client.get_session_by_id(
+        session_id=session_id, organization_id=user.selected_organization_id
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    text_session = await db_client.get_workflow_run_text_session(session.workflow_run_id)
+    if not text_session:
+        return {"messages": []}
+
+    turns = (text_session.session_data or {}).get("turns", [])
+    messages = []
+    for turn in turns:
+        if turn.get("user_message"):
+            messages.append({
+                "role": "user",
+                "text": turn["user_message"].get("text", ""),
+                "timestamp": turn["user_message"].get("created_at"),
+            })
+        if turn.get("assistant_message"):
+            messages.append({
+                "role": "assistant",
+                "text": turn["assistant_message"].get("text", ""),
+                "timestamp": turn["assistant_message"].get("created_at"),
+            })
+    return {"messages": messages}
+
+
+@router.post("/sessions/{session_id}/reply")
+async def manual_reply(
+    session_id: int,
+    body: WhatsAppManualReplyRequest,
+    user: UserModel = Depends(get_user),
+):
+    session = await db_client.get_session_by_id(
+        session_id=session_id, organization_id=user.selected_organization_id
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    config = await db_client.get_messaging_configuration(
+        config_id=session.messaging_configuration_id,
+        organization_id=user.selected_organization_id,
+    )
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+
+    from api.services.whatsapp.client import WhatsAppClient
+
+    client = WhatsAppClient.from_credentials(config.credentials)
+    try:
+        await client.send_text_message(to=session.sender_phone_number, text=body.text)
+    finally:
+        await client.close()
+
+    return {"status": "sent"}
+
+
+@router.patch("/sessions/{session_id}")
+async def update_whatsapp_session(
+    session_id: int,
+    body: WhatsAppSessionUpdateRequest,
+    user: UserModel = Depends(get_user),
+):
+    session = await db_client.get_session_by_id(
+        session_id=session_id, organization_id=user.selected_organization_id
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if body.auto_reply is not None:
+        await db_client.set_auto_reply(session_id=session_id, auto_reply=body.auto_reply)
+    if body.is_active is not None and not body.is_active:
+        await db_client.deactivate_session(session_id=session_id)
+
+    updated = await db_client.get_session_by_id(
+        session_id=session_id, organization_id=user.selected_organization_id
+    )
+    return _session_to_dict(updated)
+
+
+def _session_to_dict(session) -> dict:
+    return {
+        "id": session.id,
+        "messaging_configuration_id": session.messaging_configuration_id,
+        "organization_id": session.organization_id,
+        "workflow_id": session.workflow_id,
+        "workflow_run_id": session.workflow_run_id,
+        "sender_phone_number": session.sender_phone_number,
+        "is_active": session.is_active,
+        "auto_reply": session.auto_reply,
+        "last_message_at": session.last_message_at.isoformat() if session.last_message_at else None,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+    }

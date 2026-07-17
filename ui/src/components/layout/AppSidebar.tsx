@@ -16,6 +16,7 @@ import {
   LogOut,
   type LucideIcon,
   Megaphone,
+  MessageCircle,
   Phone,
   Settings,
   TrendingUp,
@@ -92,6 +93,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Voice Agents",
         url: "/workflow",
         icon: Workflow,
+      },
+      {
+        title: "WhatsApp",
+        url: "/whatsapp",
+        icon: MessageCircle,
       },
       {
         title: "Campaigns",

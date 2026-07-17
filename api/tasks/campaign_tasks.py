@@ -8,6 +8,7 @@ from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatc
 from api.services.campaign.campaign_event_publisher import (
     get_campaign_event_publisher,
 )
+from api.services.campaign.campaign_message_dispatcher import CampaignMessageDispatcher
 from api.services.campaign.errors import (
     ConcurrentSlotAcquisitionError,
     PhoneNumberPoolExhaustedError,
@@ -116,10 +117,26 @@ async def process_campaign_batch(
 
     failed_count = 0
     try:
-        # Process the batch
-        processed_count = await campaign_call_dispatcher.process_batch(
-            campaign_id=campaign_id, batch_size=batch_size
-        )
+        # Route to the appropriate dispatcher based on campaign channel
+        campaign = await db_client.get_campaign_by_id(campaign_id)
+        if campaign and getattr(campaign, "channel", "telephony") == "messaging":
+            msg_dispatcher = CampaignMessageDispatcher()
+            queued_runs = await db_client.claim_queued_runs_for_processing(
+                campaign_id=campaign_id,
+                scheduled_before=datetime.now(UTC),
+                limit=batch_size,
+            )
+            processed_count = 0
+            for qr in queued_runs:
+                success = await msg_dispatcher.dispatch_message(campaign, qr)
+                if success:
+                    processed_count += 1
+                else:
+                    failed_count += 1
+        else:
+            processed_count = await campaign_call_dispatcher.process_batch(
+                campaign_id=campaign_id, batch_size=batch_size
+            )
 
         if processed_count > 0:
             await db_client.reset_campaign_metadata_counter(
