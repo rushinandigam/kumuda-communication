@@ -44,6 +44,8 @@ from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
 from pipecat.services.google.tts import GoogleTTSService, GoogleTTSSettings
+
+from api.services.pipecat.google_tts_sync_streaming import GoogleTTSSyncStreamingService
 from pipecat.services.google.vertex.llm import (
     GoogleVertexLLMService,
     GoogleVertexLLMSettings,
@@ -474,7 +476,7 @@ def create_tts_service(
         if speed is not None and speed != 1.0:
             settings_kwargs["speaking_rate"] = speed
 
-        return GoogleTTSService(
+        return GoogleTTSSyncStreamingService(
             credentials=credentials,
             location=location,
             settings=GoogleTTSSettings(**settings_kwargs),
