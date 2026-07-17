@@ -35,7 +35,7 @@ interface Message {
 
 export default function WhatsAppInboxPage() {
   const { user, getAccessToken, redirectToLogin, loading } = useAuth();
-  const { backendApiEndpoint } = useAppConfig();
+  const { config } = useAppConfig();
   const [sessions, setSessions] = useState<WhatsAppSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<WhatsAppSession | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -46,7 +46,7 @@ export default function WhatsAppInboxPage() {
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const messagePollRef = useRef<NodeJS.Timeout | null>(null);
 
-  const baseUrl = resolveBrowserBackendUrl(backendApiEndpoint);
+  const baseUrl = resolveBrowserBackendUrl(config?.backendApiEndpoint ?? null);
 
   useEffect(() => {
     if (!loading && !user) {
