@@ -2,6 +2,8 @@ services:
   api:
     cap_add:
       - SYS_PTRACE
+    volumes:
+      - ./api:/app/api
     environment:
       # Object storage moved from the bundled local MinIO container to a
       # private GCS bucket (dograh-voice-audio-kumuda-d2c11), accessed via
