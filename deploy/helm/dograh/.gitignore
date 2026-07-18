@@ -1,3 +1,0 @@
-# Subchart tarballs are fetched by `helm dependency build` from Chart.lock.
-# Tracked in Chart.lock; not in git.
-charts/

@@ -1,1 +1,0 @@
-# STT Evaluation Benchmark
