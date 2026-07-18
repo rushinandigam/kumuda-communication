@@ -19,9 +19,14 @@ sudo apt-get update -qq
 sudo apt-get install -y -qq docker-compose-plugin git
 
 echo "==> Cloning repository..."
-REPO_DIR="$HOME/dograh"
+REPO_DIR="$HOME/kumuda-communication"
+# Also check legacy path in case script was run before the rename
 if [ -d "$REPO_DIR" ]; then
-  echo "    Repo already exists, pulling latest..."
+  echo "    Repo already exists at $REPO_DIR, pulling latest..."
+  cd "$REPO_DIR" && git pull origin main
+elif [ -d "$HOME/dograh" ]; then
+  REPO_DIR="$HOME/dograh"
+  echo "    Repo found at legacy path $REPO_DIR, pulling latest..."
   cd "$REPO_DIR" && git pull origin main
 else
   git clone https://github.com/rushinandigam/kumuda-communication.git "$REPO_DIR"
