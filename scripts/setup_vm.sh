@@ -89,8 +89,11 @@ echo "      --rules=tcp:22 \\"
 echo "      --source-ranges=35.235.240.0/20"
 echo ""
 
-echo "==> Building UI image..."
-docker build -t dograhai/dograh-ui:latest -f ui/Dockerfile .
+echo "==> Building UI image from source..."
+docker build -t kkconnect-ui:latest -f ui/Dockerfile .
+
+echo "==> Pulling API image (requires pipecat submodule to build from source)..."
+docker pull dograhai/dograh-api:latest
 
 echo "==> Starting the stack..."
 docker compose up -d

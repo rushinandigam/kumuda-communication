@@ -26,30 +26,29 @@ jobs:
 
       - name: Pull code and rebuild on VM
         run: |
-          gcloud compute ssh instance-20260704-055534 \
+          gcloud compute ssh kkconnect-prod \
             --zone=asia-south1-a \
             --tunnel-through-iap \
+            --project=kumuda-d2c11 \
             --command="bash -s" << 'DEPLOY_SCRIPT'
           set -e
-          cd /home/rishi/dograh
+          cd ~/kumuda-communication
 
           echo "==> Pulling latest code..."
           git pull origin main
 
-          echo "==> Rebuilding UI image..."
-          docker build -t dograhai/dograh-ui:latest -f ui/Dockerfile .
+          echo "==> Rebuilding UI image from source..."
+          docker build -t kkconnect-ui:latest -f ui/Dockerfile .
 
-          echo "==> Recreating UI container with new image..."
+          echo "==> Recreating containers..."
           docker compose up -d --force-recreate ui
-
-          echo "==> Restarting API (picks up new code via volume mounts)..."
           docker compose restart api
 
-          echo "==> Re-linking Caddy to dograh network..."
-          docker network connect dograh_app-network ai-reception-caddy-1 2>/dev/null || true
+          echo "==> Re-linking Caddy network..."
+          docker network connect kumuda-communication_app-network caddy 2>/dev/null || true
 
           echo "==> Waiting for health checks..."
-          sleep 10
+          sleep 30
           curl -sf http://localhost:8000/api/v1/health > /dev/null && echo "API: healthy" || echo "API: UNHEALTHY"
           curl -sf http://localhost:3010/ > /dev/null && echo "UI: healthy" || echo "UI: UNHEALTHY"
 
