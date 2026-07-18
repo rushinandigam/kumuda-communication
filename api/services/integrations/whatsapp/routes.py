@@ -85,6 +85,11 @@ class WhatsAppSessionListResponse(BaseModel):
     sessions: list
 
 
+class WhatsAppSendMessageRequest(BaseModel):
+    to: str
+    text: str
+
+
 class WhatsAppManualReplyRequest(BaseModel):
     text: str
 
@@ -92,6 +97,33 @@ class WhatsAppManualReplyRequest(BaseModel):
 class WhatsAppSessionUpdateRequest(BaseModel):
     auto_reply: bool | None = None
     is_active: bool | None = None
+
+
+@router.post("/send")
+async def send_whatsapp_message(
+    body: WhatsAppSendMessageRequest,
+    user: UserModel = Depends(get_user),
+):
+    """Send a message to any phone number using the org's default messaging config."""
+    configs = await db_client.list_messaging_configurations(
+        organization_id=user.selected_organization_id
+    )
+    config = next((c for c in configs if c.is_default), configs[0] if configs else None)
+    if not config:
+        raise HTTPException(
+            status_code=400,
+            detail="No messaging configuration found. Create one first.",
+        )
+
+    from api.services.whatsapp.client import WhatsAppClient
+
+    client = WhatsAppClient.from_credentials(config.credentials)
+    try:
+        await client.send_text_message(to=body.to, text=body.text)
+    finally:
+        await client.close()
+
+    return {"status": "sent", "to": body.to}
 
 
 @router.get("/sessions")
