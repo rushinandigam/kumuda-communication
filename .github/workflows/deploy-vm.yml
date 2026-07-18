@@ -1,0 +1,57 @@
+name: Deploy to VM
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-vm
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Pull code and rebuild on VM
+        run: |
+          gcloud compute ssh instance-20260704-055534 \
+            --zone=asia-south1-a \
+            --tunnel-through-iap \
+            --command="bash -s" << 'DEPLOY_SCRIPT'
+          set -e
+          cd /home/rishi/dograh
+
+          echo "==> Pulling latest code..."
+          git pull origin main
+
+          echo "==> Rebuilding UI image..."
+          docker build -t dograhai/dograh-ui:latest -f ui/Dockerfile .
+
+          echo "==> Recreating UI container with new image..."
+          docker compose up -d --force-recreate ui
+
+          echo "==> Restarting API (picks up new code via volume mounts)..."
+          docker compose restart api
+
+          echo "==> Re-linking Caddy to dograh network..."
+          docker network connect dograh_app-network ai-reception-caddy-1 2>/dev/null || true
+
+          echo "==> Waiting for health checks..."
+          sleep 10
+          curl -sf http://localhost:8000/api/v1/health > /dev/null && echo "API: healthy" || echo "API: UNHEALTHY"
+          curl -sf http://localhost:3010/ > /dev/null && echo "UI: healthy" || echo "UI: UNHEALTHY"
+
+          echo "==> Deploy complete!"
+          DEPLOY_SCRIPT

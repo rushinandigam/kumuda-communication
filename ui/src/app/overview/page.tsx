@@ -90,7 +90,7 @@ export default function OverviewPage() {
                         <div className="flex flex-wrap gap-4">
                             <Button asChild variant="outline">
                                 <a
-                                    href="https://docs.dograh.com"
+                                    href="https://docs.kkconnect.com"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >
@@ -99,7 +99,7 @@ export default function OverviewPage() {
                             </Button>
                             <Button asChild variant="outline">
                                 <a
-                                    href="https://github.com/dograh-hq/dograh/issues"
+                                    href="https://github.com/kumuda-communication/kumuda-communication/issues"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >

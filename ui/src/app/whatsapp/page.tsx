@@ -1,30 +1,29 @@
 "use client";
 
 import { MessageCircle, Search, Send } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/lib/auth";
-import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { resolveBrowserBackendUrl } from "@/lib/apiClient";
+import { useAuth } from "@/lib/auth";
 
-import { ContactList } from "./components/ContactList";
-import { ChatView } from "./components/ChatView";
 import { ChatHeader } from "./components/ChatHeader";
+import { ChatView } from "./components/ChatView";
+import { ContactList } from "./components/ContactList";
 
 interface WhatsAppSession {
   id: number;
-  messaging_configuration_id: number;
-  organization_id: number;
-  workflow_id: number;
-  workflow_run_id: number;
   sender_phone_number: string;
   is_active: boolean;
   auto_reply: boolean;
   last_message_at: string | null;
   created_at: string | null;
+  messaging_configuration_id?: number;
+  organization_id?: number;
+  workflow_id?: number;
+  workflow_run_id?: number;
 }
 
 interface Message {
@@ -54,7 +53,7 @@ export default function WhatsAppInboxPage() {
     }
   }, [loading, user, redirectToLogin]);
 
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const token = await getAccessToken();
       const res = await fetch(`${baseUrl}/api/v1/integrations/whatsapp/sessions`, {
@@ -69,9 +68,9 @@ export default function WhatsAppInboxPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [baseUrl, getAccessToken]);
 
-  const fetchMessages = async (sessionId: number) => {
+  const fetchMessages = useCallback(async (sessionId: number) => {
     try {
       const token = await getAccessToken();
       const res = await fetch(
@@ -85,7 +84,7 @@ export default function WhatsAppInboxPage() {
     } catch (err) {
       console.error("Failed to fetch messages:", err);
     }
-  };
+  }, [baseUrl, getAccessToken]);
 
   useEffect(() => {
     if (!loading && user) {
@@ -95,7 +94,7 @@ export default function WhatsAppInboxPage() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [loading, user]);
+  }, [loading, user, fetchSessions]);
 
   useEffect(() => {
     if (selectedSession) {
@@ -108,7 +107,7 @@ export default function WhatsAppInboxPage() {
     return () => {
       if (messagePollRef.current) clearInterval(messagePollRef.current);
     };
-  }, [selectedSession?.id]);
+  }, [selectedSession, fetchMessages]);
 
   const handleSendReply = async () => {
     if (!selectedSession || !replyText.trim()) return;
