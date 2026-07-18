@@ -87,7 +87,10 @@ class WhatsAppSessionListResponse(BaseModel):
 
 class WhatsAppSendMessageRequest(BaseModel):
     to: str
-    text: str
+    text: str | None = None
+    template_name: str | None = None
+    template_language: str = "en"
+    template_components: list | None = None
 
 
 class WhatsAppManualReplyRequest(BaseModel):
@@ -119,11 +122,24 @@ async def send_whatsapp_message(
 
     client = WhatsAppClient.from_credentials(config.credentials)
     try:
-        await client.send_text_message(to=body.to, text=body.text)
+        if body.template_name:
+            result = await client.send_template_message(
+                to=body.to,
+                template_name=body.template_name,
+                language=body.template_language,
+                components=body.template_components or [],
+            )
+        elif body.text:
+            result = await client.send_text_message(to=body.to, text=body.text)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'text' or 'template_name' must be provided.",
+            )
     finally:
         await client.close()
 
-    return {"status": "sent", "to": body.to}
+    return {"status": "sent", "to": body.to, "response": result}
 
 
 @router.get("/sessions")
