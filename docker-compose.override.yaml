@@ -4,6 +4,7 @@ services:
       - SYS_PTRACE
     volumes:
       - ./api:/app/api
+      - ./scripts/start_services_docker.sh:/app/scripts/start_services_docker.sh
     environment:
       # Object storage moved from the bundled local MinIO container to a
       # private GCS bucket (dograh-voice-audio-kumuda-d2c11), accessed via
