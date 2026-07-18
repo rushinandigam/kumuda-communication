@@ -33,6 +33,10 @@ class WhatsAppClient:
             phone_number_id=credentials["phone_number_id"],
         )
 
+    @staticmethod
+    def _normalize_phone(number: str) -> str:
+        return number.lstrip("+").replace(" ", "").replace("-", "")
+
     @property
     def _messages_url(self) -> str:
         return f"{self._base_url}/{self._phone_number_id}/messages"
@@ -40,7 +44,8 @@ class WhatsAppClient:
     async def send_text_message(self, to: str, text: str) -> Dict[str, Any]:
         payload = {
             "messaging_product": "whatsapp",
-            "to": to,
+            "recipient_type": "individual",
+            "to": self._normalize_phone(to),
             "type": "text",
             "text": {"body": text},
         }
@@ -55,11 +60,15 @@ class WhatsAppClient:
     ) -> Dict[str, Any]:
         payload = {
             "messaging_product": "whatsapp",
-            "to": to,
+            "recipient_type": "individual",
+            "to": self._normalize_phone(to),
             "type": "template",
             "template": {
                 "name": template_name,
-                "language": {"code": language},
+                "language": {
+                    "policy": "deterministic",
+                    "code": language,
+                },
                 "components": components,
             },
         }
@@ -79,12 +88,15 @@ class WhatsAppClient:
                     continue
 
                 if response.status_code >= 400:
+                    logger.error(f"WhatsApp API error {response.status_code}: {response.text}")
                     raise WhatsAppClientError(
                         status_code=response.status_code,
                         detail=response.text,
                     )
 
-                return response.json()
+                result = response.json()
+                logger.info(f"WhatsApp API response: {result}")
+                return result
             except httpx.HTTPError as e:
                 if attempt == retries - 1:
                     raise WhatsAppClientError(status_code=0, detail=str(e)) from e
