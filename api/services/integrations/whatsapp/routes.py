@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from api.db import db_client
 from api.db.models import UserModel
@@ -8,6 +11,35 @@ from api.services.auth.depends import get_user
 from api.services.integrations.whatsapp.webhook_handler import handle_incoming_message
 
 router = APIRouter(prefix="/integrations/whatsapp", tags=["whatsapp"])
+
+
+async def _store_message(
+    organization_id: int,
+    phone_number: str,
+    direction: str,
+    content: str | None = None,
+    message_type: str = "text",
+    template_name: str | None = None,
+):
+    """Store a message in whatsapp_messages table."""
+    phone = phone_number.lstrip("+").replace(" ", "").replace("-", "")
+    async with db_client.async_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO whatsapp_messages "
+                "(organization_id, phone_number, direction, message_type, content, template_name, created_at) "
+                "VALUES (:org_id, :phone, :direction, :msg_type, :content, :template, NOW())"
+            ),
+            {
+                "org_id": organization_id,
+                "phone": phone,
+                "direction": direction,
+                "msg_type": message_type,
+                "content": content,
+                "template": template_name,
+            },
+        )
+        await session.commit()
 
 
 @router.get("/webhook")
@@ -129,8 +161,22 @@ async def send_whatsapp_message(
                 language=body.template_language,
                 components=body.template_components or [],
             )
+            await _store_message(
+                organization_id=user.selected_organization_id,
+                phone_number=body.to,
+                direction="outbound",
+                content=f"[Template: {body.template_name}]",
+                message_type="template",
+                template_name=body.template_name,
+            )
         elif body.text:
             result = await client.send_text_message(to=body.to, text=body.text)
+            await _store_message(
+                organization_id=user.selected_organization_id,
+                phone_number=body.to,
+                direction="outbound",
+                content=body.text,
+            )
         else:
             raise HTTPException(
                 status_code=400,
@@ -140,6 +186,72 @@ async def send_whatsapp_message(
         await client.close()
 
     return {"status": "sent", "to": body.to, "response": result}
+
+
+@router.get("/conversations")
+async def list_conversations(user: UserModel = Depends(get_user)):
+    """List all phone numbers with message history, like WhatsApp Web contacts list."""
+    async with db_client.async_session() as session:
+        result = await session.execute(
+            text(
+                "SELECT phone_number, "
+                "MAX(created_at) as last_message_at, "
+                "COUNT(*) as message_count, "
+                "(SELECT content FROM whatsapp_messages m2 "
+                " WHERE m2.phone_number = m.phone_number AND m2.organization_id = :org_id "
+                " ORDER BY m2.created_at DESC LIMIT 1) as last_message "
+                "FROM whatsapp_messages m "
+                "WHERE organization_id = :org_id "
+                "GROUP BY phone_number "
+                "ORDER BY MAX(created_at) DESC"
+            ),
+            {"org_id": user.selected_organization_id},
+        )
+        rows = result.fetchall()
+
+    conversations = []
+    for row in rows:
+        conversations.append({
+            "phone_number": row.phone_number,
+            "last_message_at": row.last_message_at.isoformat() if row.last_message_at else None,
+            "message_count": row.message_count,
+            "last_message": row.last_message,
+        })
+    return {"conversations": conversations}
+
+
+@router.get("/conversations/{phone_number}/messages")
+async def get_conversation_messages(
+    phone_number: str,
+    user: UserModel = Depends(get_user),
+):
+    """Get all messages for a phone number, ordered by time."""
+    phone = phone_number.lstrip("+").replace(" ", "").replace("-", "")
+    async with db_client.async_session() as session:
+        result = await session.execute(
+            text(
+                "SELECT id, direction, message_type, content, template_name, status, created_at "
+                "FROM whatsapp_messages "
+                "WHERE organization_id = :org_id AND phone_number = :phone "
+                "ORDER BY created_at ASC"
+            ),
+            {"org_id": user.selected_organization_id, "phone": phone},
+        )
+        rows = result.fetchall()
+
+    messages = []
+    for row in rows:
+        messages.append({
+            "id": row.id,
+            "direction": row.direction,
+            "role": "assistant" if row.direction == "outbound" else "user",
+            "message_type": row.message_type,
+            "text": row.content or "",
+            "template_name": row.template_name,
+            "status": row.status,
+            "timestamp": row.created_at.isoformat() if row.created_at else None,
+        })
+    return {"messages": messages}
 
 
 @router.get("/sessions")
@@ -220,6 +332,12 @@ async def manual_reply(
     client = WhatsAppClient.from_credentials(config.credentials)
     try:
         await client.send_text_message(to=session.sender_phone_number, text=body.text)
+        await _store_message(
+            organization_id=user.selected_organization_id,
+            phone_number=session.sender_phone_number,
+            direction="outbound",
+            content=body.text,
+        )
     finally:
         await client.close()
 

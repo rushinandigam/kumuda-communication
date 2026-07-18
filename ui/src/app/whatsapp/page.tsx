@@ -9,34 +9,28 @@ import { useAppConfig } from "@/context/AppConfigContext";
 import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth";
 
-import { ChatHeader } from "./components/ChatHeader";
-import { ChatView } from "./components/ChatView";
-import { ContactList } from "./components/ContactList";
-
-interface WhatsAppSession {
-  id: number;
-  sender_phone_number: string;
-  is_active: boolean;
-  auto_reply: boolean;
+interface Conversation {
+  phone_number: string;
   last_message_at: string | null;
-  created_at: string | null;
-  messaging_configuration_id?: number;
-  organization_id?: number;
-  workflow_id?: number;
-  workflow_run_id?: number;
+  message_count: number;
+  last_message: string | null;
 }
 
 interface Message {
+  id: number;
+  direction: "inbound" | "outbound";
   role: "user" | "assistant";
   text: string;
+  message_type: string;
+  template_name: string | null;
   timestamp: string | null;
 }
 
 export default function WhatsAppInboxPage() {
   const { user, getAccessToken, redirectToLogin, loading } = useAuth();
   const { config } = useAppConfig();
-  const [sessions, setSessions] = useState<WhatsAppSession[]>([]);
-  const [selectedSession, setSelectedSession] = useState<WhatsAppSession | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [replyText, setReplyText] = useState("");
@@ -48,6 +42,7 @@ export default function WhatsAppInboxPage() {
   const [isSendingNew, setIsSendingNew] = useState(false);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const messagePollRef = useRef<NodeJS.Timeout | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const baseUrl = resolveBrowserBackendUrl(config?.backendApiEndpoint ?? null);
 
@@ -57,28 +52,28 @@ export default function WhatsAppInboxPage() {
     }
   }, [loading, user, redirectToLogin]);
 
-  const fetchSessions = useCallback(async () => {
+  const fetchConversations = useCallback(async () => {
     try {
       const token = await getAccessToken();
-      const res = await fetch(`${baseUrl}/api/v1/integrations/whatsapp/sessions`, {
+      const res = await fetch(`${baseUrl}/api/v1/integrations/whatsapp/conversations`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setSessions(data.sessions || []);
+        setConversations(data.conversations || []);
       }
     } catch (err) {
-      console.error("Failed to fetch sessions:", err);
+      console.error("Failed to fetch conversations:", err);
     } finally {
       setIsLoading(false);
     }
   }, [baseUrl, getAccessToken]);
 
-  const fetchMessages = useCallback(async (sessionId: number) => {
+  const fetchMessages = useCallback(async (phone: string) => {
     try {
       const token = await getAccessToken();
       const res = await fetch(
-        `${baseUrl}/api/v1/integrations/whatsapp/sessions/${sessionId}/messages`,
+        `${baseUrl}/api/v1/integrations/whatsapp/conversations/${phone}/messages`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.ok) {
@@ -92,45 +87,43 @@ export default function WhatsAppInboxPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      fetchSessions();
-      pollRef.current = setInterval(fetchSessions, 3000);
+      fetchConversations();
+      pollRef.current = setInterval(fetchConversations, 5000);
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [loading, user, fetchSessions]);
+  }, [loading, user, fetchConversations]);
 
   useEffect(() => {
-    if (selectedSession) {
-      fetchMessages(selectedSession.id);
-      messagePollRef.current = setInterval(
-        () => fetchMessages(selectedSession.id),
-        2000
-      );
+    if (selectedPhone) {
+      fetchMessages(selectedPhone);
+      messagePollRef.current = setInterval(() => fetchMessages(selectedPhone), 3000);
     }
     return () => {
       if (messagePollRef.current) clearInterval(messagePollRef.current);
     };
-  }, [selectedSession, fetchMessages]);
+  }, [selectedPhone, fetchMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const handleSendReply = async () => {
-    if (!selectedSession || !replyText.trim()) return;
+    if (!selectedPhone || !replyText.trim()) return;
     setIsSending(true);
     try {
       const token = await getAccessToken();
-      await fetch(
-        `${baseUrl}/api/v1/integrations/whatsapp/sessions/${selectedSession.id}/reply`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ text: replyText }),
-        }
-      );
+      await fetch(`${baseUrl}/api/v1/integrations/whatsapp/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ to: selectedPhone, text: replyText.trim() }),
+      });
       setReplyText("");
-      fetchMessages(selectedSession.id);
+      fetchMessages(selectedPhone);
     } catch (err) {
       console.error("Failed to send reply:", err);
     } finally {
@@ -154,10 +147,13 @@ export default function WhatsAppInboxPage() {
           text: newMessage.trim(),
         }),
       });
+      const phone = newPhoneNumber.trim().replace(/^\+/, "");
       setNewPhoneNumber("");
       setNewMessage("");
       setShowNewChat(false);
-      fetchSessions();
+      setSelectedPhone(phone);
+      fetchConversations();
+      fetchMessages(phone);
     } catch (err) {
       console.error("Failed to send message:", err);
     } finally {
@@ -165,30 +161,19 @@ export default function WhatsAppInboxPage() {
     }
   };
 
-  const handleToggleAutoReply = async (autoReply: boolean) => {
-    if (!selectedSession) return;
-    try {
-      const token = await getAccessToken();
-      await fetch(
-        `${baseUrl}/api/v1/integrations/whatsapp/sessions/${selectedSession.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ auto_reply: autoReply }),
-        }
-      );
-      setSelectedSession({ ...selectedSession, auto_reply: autoReply });
-    } catch (err) {
-      console.error("Failed to toggle auto-reply:", err);
-    }
-  };
-
-  const filteredSessions = sessions.filter((s) =>
-    s.sender_phone_number.includes(searchQuery)
+  const filteredConversations = conversations.filter((c) =>
+    c.phone_number.includes(searchQuery)
   );
+
+  const formatTime = (ts: string | null) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
 
   if (loading || !user) {
     return (
@@ -200,11 +185,11 @@ export default function WhatsAppInboxPage() {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
-      {/* Left panel — contact list */}
+      {/* Left panel — conversations list */}
       <div className="flex w-80 flex-col border-r bg-sidebar">
         <div className="border-b p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">WhatsApp Inbox</h2>
+            <h2 className="text-lg font-semibold">WhatsApp</h2>
             <Button
               size="icon"
               variant="ghost"
@@ -224,15 +209,38 @@ export default function WhatsAppInboxPage() {
             />
           </div>
         </div>
-        <ContactList
-          sessions={filteredSessions}
-          selectedId={selectedSession?.id ?? null}
-          onSelect={(session) => {
-            setSelectedSession(session);
-            setShowNewChat(false);
-          }}
-          isLoading={isLoading}
-        />
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
+          ) : filteredConversations.length === 0 ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              No conversations yet
+            </div>
+          ) : (
+            filteredConversations.map((conv) => (
+              <button
+                key={conv.phone_number}
+                onClick={() => {
+                  setSelectedPhone(conv.phone_number);
+                  setShowNewChat(false);
+                }}
+                className={`w-full border-b px-4 py-3 text-left transition-colors hover:bg-accent ${
+                  selectedPhone === conv.phone_number ? "bg-accent" : ""
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-sm">+{conv.phone_number}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatTime(conv.last_message_at)}
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {conv.last_message || "No messages"}
+                </p>
+              </button>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Right panel — chat view or new message form */}
@@ -286,17 +294,61 @@ export default function WhatsAppInboxPage() {
               </div>
             </div>
           </div>
-        ) : selectedSession ? (
+        ) : selectedPhone ? (
           <>
-            <ChatHeader
-              session={selectedSession}
-              onToggleAutoReply={handleToggleAutoReply}
-            />
-            <ChatView messages={messages} />
+            {/* Chat header */}
+            <div className="flex items-center justify-between border-b px-6 py-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 dark:bg-green-900">
+                  <MessageCircle className="h-4 w-4 text-green-700 dark:text-green-300" />
+                </div>
+                <span className="font-medium">+{selectedPhone}</span>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
+              {messages.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  No messages yet
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${
+                          msg.direction === "outbound"
+                            ? "bg-green-600 text-white"
+                            : "bg-background border"
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                        <p
+                          className={`mt-1 text-[10px] ${
+                            msg.direction === "outbound"
+                              ? "text-green-100"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {formatTime(msg.timestamp)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
+
+            {/* Reply input */}
             <div className="border-t p-4">
               <div className="flex gap-2">
                 <Input
-                  placeholder="Type a reply..."
+                  placeholder="Type a message..."
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
                   onKeyDown={(e) => {
