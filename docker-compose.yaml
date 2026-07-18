@@ -1,16 +1,6 @@
-# Dograh deployment stack — driven by the helper scripts, not by a bare
-# `docker compose up`.
-#
-# This stack needs a generated .env (secrets, public host/URL) and, for the
-# remote/TURN profiles, runtime nginx/coturn config rendered by the dograh-init
-# service. The setup scripts create those for you — start with them:
-#
-#   Local:          ./start_docker.sh        (Windows: .\start_docker.ps1)
-#   Remote server:  sudo ./setup_remote.sh   then ./remote_up.sh
-#
-# Running `docker compose up` against a fresh checkout will fail or come up
-# misconfigured (e.g. OSS_JWT_SECRET is required). Full guide:
-# https://docs.dograh.com/deployment/docker
+# KK Connect production stack.
+# Requires .env with secrets (POSTGRES_PASSWORD, REDIS_PASSWORD, OSS_JWT_SECRET).
+# All service ports are bound to 127.0.0.1 — external access via Caddy only.
 
 services:
   postgres:
@@ -29,7 +19,7 @@ services:
         max-size: "10m"
         max-file: "3"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -43,7 +33,7 @@ services:
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command: >
       --requirepass ${REDIS_PASSWORD:-redissecret}
     volumes:
@@ -236,7 +226,7 @@ services:
       POSTHOG_HOST: "https://us.i.posthog.com"
 
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -274,7 +264,7 @@ services:
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.posthog.com"
     ports:
-      - "3010:3010"
+      - "127.0.0.1:3010:3010"
     depends_on:
       api:
         condition: service_healthy
@@ -319,7 +309,7 @@ services:
     #     *.trycloudflare.com URL the API discovers from the metrics endpoint.
     command: ${CLOUDFLARED_COMMAND:-tunnel --url http://api:8000 --metrics 0.0.0.0:2000}
     ports:
-      - "2000:2000" # metrics endpoint (quick-tunnel URL discovery)
+      - "127.0.0.1:2000:2000" # metrics endpoint (quick-tunnel URL discovery)
     networks:
       - app-network
 
