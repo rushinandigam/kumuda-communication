@@ -13,7 +13,7 @@ __pycache__
 infrastructure/
 prd/
 .vercel
-
+key.json
 .devcontainer/install.local.sh
 venv/
 .venv/
