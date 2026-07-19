@@ -79,16 +79,16 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         url: "/workflow",
         icon: Phone,
       },
-    ],
-  },
-  {
-    label: "MANAGE",
-    items: [
       {
         title: "Contacts",
         url: "/contacts",
         icon: Users,
       },
+    ],
+  },
+  {
+    label: "MANAGE",
+    items: [
       {
         title: "Settings",
         url: "/settings",
