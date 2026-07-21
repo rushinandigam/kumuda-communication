@@ -31,14 +31,14 @@ jobs:
 
       - name: Pull code and rebuild on VM
         run: |
-          gcloud compute ssh kkconnect-prod \
+          gcloud compute ssh rishi@kkconnect-prod \
             --zone=asia-south1-a \
             --tunnel-through-iap \
             --project=kumuda-d2c11 \
             --quiet \
             --command="bash -s" << 'DEPLOY_SCRIPT'
           set -e
-          cd /home/rishi/kumuda-communication
+          cd ~/kumuda-communication
 
           echo "==> Pulling latest code..."
           git pull origin main
