@@ -170,10 +170,19 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
     );
 };
 
-export const useOnboarding = () => {
+export const useOnboarding = (): OnboardingContextType => {
     const context = useContext(OnboardingContext);
     if (!context) {
-        throw new Error('useOnboarding must be used within an OnboardingProvider');
+        return {
+            loading: false,
+            onboardingCompletedAt: new Date().toISOString(),
+            onboardingSkipped: true,
+            markOnboardingCompleted: () => {},
+            hasSeenTooltip: () => true,
+            markTooltipSeen: () => {},
+            hasCompletedAction: () => true,
+            markActionCompleted: () => {},
+        };
     }
     return context;
 };

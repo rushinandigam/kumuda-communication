@@ -16,6 +16,35 @@ jobs:
       id-token: write
 
     steps:
+      - name: Checkout code (for change detection)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed paths
+        id: changes
+        run: |
+          # Compare current commit with previous
+          UI_CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'ui/' | head -1)
+          API_CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'api/' | head -1)
+          OTHER_CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'docker-compose.yaml' '.github/workflows/' 'scripts/' 'nginx/' | head -1)
+
+          if [ -n "$UI_CHANGED" ] || [ -n "$OTHER_CHANGED" ]; then
+            echo "rebuild_ui=true" >> $GITHUB_OUTPUT
+          else
+            echo "rebuild_ui=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -n "$API_CHANGED" ] || [ -n "$OTHER_CHANGED" ]; then
+            echo "rebuild_api=true" >> $GITHUB_OUTPUT
+          else
+            echo "rebuild_api=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "UI changed: $( [ -n \"$UI_CHANGED\" ] && echo yes || echo no )"
+          echo "API changed: $( [ -n \"$API_CHANGED\" ] && echo yes || echo no )"
+          echo "Infra changed: $( [ -n \"$OTHER_CHANGED\" ] && echo yes || echo no )"
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
@@ -29,26 +58,45 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -b 3072 -f ~/.ssh/google_compute_engine -N "" -q
 
-      - name: Pull code and rebuild on VM
+      - name: Deploy to VM
+        env:
+          REBUILD_UI: ${{ steps.changes.outputs.rebuild_ui }}
+          REBUILD_API: ${{ steps.changes.outputs.rebuild_api }}
         run: |
           gcloud compute ssh rishi@kkconnect-prod \
             --zone=asia-south1-a \
             --tunnel-through-iap \
             --project=kumuda-d2c11 \
             --quiet \
-            --command="bash -s" << 'DEPLOY_SCRIPT'
+            --command="bash -s $REBUILD_UI $REBUILD_API" << 'DEPLOY_SCRIPT'
           set -e
+          REBUILD_UI="${1:-true}"
+          REBUILD_API="${2:-true}"
           cd ~/kumuda-communication
 
           echo "==> Pulling latest code..."
           git pull origin main
 
-          echo "==> Rebuilding UI image from source..."
-          docker build -t kkconnect-ui:latest -f ui/Dockerfile .
+          SERVICES_TO_RECREATE=""
 
-          echo "==> Recreating containers..."
-          docker compose up -d --force-recreate ui
-          docker compose restart api
+          if [ "$REBUILD_UI" = "true" ]; then
+            echo "==> Rebuilding UI image from source..."
+            docker build -t kkconnect-ui:latest -f ui/Dockerfile .
+            SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE ui"
+          fi
+
+          if [ "$REBUILD_API" = "true" ]; then
+            echo "==> Rebuilding API image from source..."
+            docker build -t kkconnect-api:latest -f api/Dockerfile .
+            SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE api"
+          fi
+
+          if [ -n "$SERVICES_TO_RECREATE" ]; then
+            echo "==> Recreating containers:$SERVICES_TO_RECREATE"
+            docker compose up -d --force-recreate $SERVICES_TO_RECREATE
+          else
+            echo "==> No containers to rebuild, just pulling code."
+          fi
 
           echo "==> Re-linking Caddy network..."
           docker network connect kumuda-communication_app-network caddy 2>/dev/null || true

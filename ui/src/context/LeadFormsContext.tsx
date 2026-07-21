@@ -131,6 +131,12 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
 
 export function useLeadForms(): LeadFormsContextValue {
   const ctx = useContext(LeadFormsContext);
-  if (!ctx) throw new Error("useLeadForms must be used within a LeadFormsProvider");
+  if (!ctx) {
+    return {
+      openHireExpert: () => {},
+      openEnterprise: () => {},
+      hasOpenedHireRef: { current: false },
+    };
+  }
   return ctx;
 }
