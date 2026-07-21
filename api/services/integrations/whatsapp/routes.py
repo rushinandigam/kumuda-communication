@@ -48,36 +48,38 @@ async def verify_webhook(
     hub_challenge: str = Query(None, alias="hub.challenge"),
     hub_verify_token: str = Query(None, alias="hub.verify_token"),
 ):
-    """Meta webhook verification endpoint."""
-    if hub_mode == "subscribe" and hub_verify_token:
-        config = await db_client.get_messaging_configuration_by_phone_number_id(
-            hub_verify_token
-        )
-        if config and config.webhook_verify_token == hub_verify_token:
-            return int(hub_challenge)
+    """Meta webhook verification (hub challenge).
 
-        # Fallback: try matching the verify token directly against any config
-        from sqlalchemy.future import select
-        from api.db.models import MessagingConfigurationModel
+    Meta sends GET with hub.mode=subscribe, hub.verify_token=<your token>,
+    hub.challenge=<int>. We match verify_token against any messaging config's
+    webhook_verify_token and echo back the challenge.
+    """
+    if hub_mode != "subscribe" or not hub_verify_token or not hub_challenge:
+        raise HTTPException(status_code=403, detail="Verification failed")
 
-        async with db_client.async_session() as session:
-            result = await session.execute(
-                select(MessagingConfigurationModel).where(
-                    MessagingConfigurationModel.webhook_verify_token == hub_verify_token
-                )
+    from sqlalchemy.future import select
+    from api.db.models import MessagingConfigurationModel
+
+    async with db_client.async_session() as session:
+        result = await session.execute(
+            select(MessagingConfigurationModel).where(
+                MessagingConfigurationModel.webhook_verify_token == hub_verify_token
             )
-            matching_config = result.scalars().first()
-            if matching_config:
-                return int(hub_challenge)
+        )
+        matching_config = result.scalars().first()
+
+    if matching_config:
+        logger.info(f"Webhook verified for config id={matching_config.id}")
+        return int(hub_challenge)
 
     raise HTTPException(status_code=403, detail="Verification failed")
 
 
 @router.post("/webhook")
 async def receive_webhook(request: Request):
-    """Process incoming WhatsApp messages from Meta webhook."""
+    """Process incoming WhatsApp webhook events (messages, statuses, etc.)."""
     payload = await request.json()
-    logger.debug(f"WhatsApp webhook received: {payload}")
+    logger.info(f"WhatsApp webhook received: {payload}")
 
     try:
         entry = payload.get("entry", [])
@@ -86,29 +88,55 @@ async def receive_webhook(request: Request):
             for change in changes:
                 value = change.get("value", {})
                 messages = value.get("messages", [])
+                statuses = value.get("statuses", [])
                 metadata = value.get("metadata", {})
                 phone_number_id = metadata.get("phone_number_id")
 
                 if not phone_number_id:
                     continue
 
+                # Process incoming messages
                 for message in messages:
-                    if message.get("type") != "text":
-                        continue
-
                     sender = message.get("from", "")
-                    text_body = message.get("text", {}).get("body", "")
+                    msg_type = message.get("type", "")
 
-                    if not sender or not text_body:
-                        continue
+                    if msg_type == "text":
+                        text_body = message.get("text", {}).get("body", "")
+                        if sender and text_body:
+                            logger.info(f"Incoming message from {sender}: {text_body[:50]}")
+                            await handle_incoming_message(
+                                phone_number_id=phone_number_id,
+                                sender_phone=sender,
+                                message_text=text_body,
+                            )
+                            # Store inbound message
+                            from sqlalchemy.future import select
+                            from api.db.models import MessagingConfigurationModel
 
-                    await handle_incoming_message(
-                        phone_number_id=phone_number_id,
-                        sender_phone=sender,
-                        message_text=text_body,
+                            async with db_client.async_session() as session:
+                                result = await session.execute(
+                                    select(MessagingConfigurationModel).where(
+                                        MessagingConfigurationModel.credentials["phone_number_id"].astext == phone_number_id
+                                    )
+                                )
+                                config = result.scalars().first()
+                            if config:
+                                await _store_message(
+                                    organization_id=config.organization_id,
+                                    phone_number=sender,
+                                    direction="inbound",
+                                    content=text_body,
+                                )
+                    else:
+                        logger.info(f"Incoming {msg_type} message from {sender} (not processed)")
+
+                # Log status updates (sent, delivered, read)
+                for status in statuses:
+                    logger.info(
+                        f"Message status: {status.get('status')} for {status.get('recipient_id')}"
                     )
     except Exception as e:
-        logger.error(f"WhatsApp webhook processing error: {e}")
+        logger.error(f"WhatsApp webhook processing error: {e}", exc_info=True)
 
     return {"status": "ok"}
 

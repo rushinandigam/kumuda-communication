@@ -136,6 +136,9 @@ services:
       context: .
       dockerfile: api/Dockerfile
     image: kkconnect-api:latest
+    volumes:
+      - ./api:/app/api
+      - ./scripts/start_services_docker.sh:/app/scripts/start_services_docker.sh
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"

@@ -40,7 +40,7 @@ const SERVICES: ServiceConfig[] = [
     icon: <MessageCircle size={24} />,
     color: "#25D366",
     status: "active",
-    href: "/whatsapp",
+    href: "/settings/whatsapp/templates",
   },
   {
     id: "sms",

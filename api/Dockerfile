@@ -27,20 +27,17 @@ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
     --mount=type=cache,target=/root/.cache/uv \
     uv pip install -r /tmp/req.txt
 
-# Layer 2: pipecat deps. Cache invalidates when pipecat source changes.
-# After installing pipecat, two hardening tweaks:
-#   1. Swap opencv-python (pulled by pipecat[webrtc]) for opencv-python-headless.
-#      The non-headless build links against X11/Qt (libxcb*); without those
-#      shared libs in the image, `import cv2` fails at runtime.
-#   2. Pre-download NLTK's punkt_tab tokenizer so pipecat's text processing
-#      doesn't hit the network on first agent run. NLTK auto-finds it under
-#      sys.prefix/nltk_data, so it travels with the venv on COPY.
-RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
-    --mount=type=cache,target=/root/.cache/uv \
-    uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]' \
+# Layer 2: pipecat deps. Install from PyPI then patch with custom modules
+# (run_context, enums) that were in the private fork.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install 'pipecat-ai[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]' \
  && uv pip uninstall opencv-python \
  && uv pip install opencv-python-headless \
  && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"
+
+# Patch pipecat with custom modules from the private fork
+COPY api/patches/run_context.py /opt/venv/lib/python3.13/site-packages/pipecat/utils/run_context.py
+COPY api/patches/enums.py /opt/venv/lib/python3.13/site-packages/pipecat/utils/enums.py
 
 # Strip cache files, test/example dirs, and type stubs from the venv
 RUN find /opt/venv -type f -name '*.pyc' -delete && \
@@ -142,29 +139,14 @@ ENV PYTHONUNBUFFERED=1
 # from a later `RUN chown -R`, which would double the on-disk size of /app).
 COPY --chown=dograh:dograh ./api ./api
 
-# Entrypoint scripts.
-#   start_services_docker.sh — single-container (docker-compose) entrypoint
-#     that runs every service in one process tree.
-#   run_*.sh                 — per-service entrypoints used by the Helm chart,
-#     which runs each workload (web, arq-worker, ari-manager,
-#     campaign-orchestrator, migrate) as its own pod. Keep this list in sync
-#     with the command:[] entries in deploy/helm/dograh/templates/*.yaml.
-COPY --chown=dograh:dograh \
-     ./scripts/start_services_docker.sh \
-     ./scripts/run_migrate.sh \
-     ./scripts/run_web.sh \
-     ./scripts/run_arq_worker.sh \
-     ./scripts/run_ari_manager.sh \
-     ./scripts/run_campaign_orchestrator.sh \
-     ./scripts/
+# Entrypoint script — single-container (docker-compose) entrypoint
+# that runs every service in one process tree.
+COPY --chown=dograh:dograh ./scripts/start_services_docker.sh ./scripts/
 
 # ts_validator Node deps (built in ts-deps stage with full node:22-slim image).
 # The validator runs as a short-lived subprocess from api/mcp_server/ts_bridge.py.
 COPY --from=ts-deps --chown=dograh:dograh /ts_validator/node_modules ./api/mcp_server/ts_validator/node_modules
 
-# Product documentation — read at runtime by the MCP docs tools
-# (search_dograh_docs / fetch_dograh_doc) so agents can learn Dograh.
-COPY --chown=dograh:dograh ./docs ./docs
 
 ENV PYTHONPATH=/app
 

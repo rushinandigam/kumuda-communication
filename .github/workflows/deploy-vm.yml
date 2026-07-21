@@ -35,7 +35,7 @@ jobs:
             echo "rebuild_ui=false" >> $GITHUB_OUTPUT
           fi
 
-          if [ -n "$API_CHANGED" ] || [ -n "$OTHER_CHANGED" ]; then
+          if [ -n "$API_CHANGED" ]; then
             echo "rebuild_api=true" >> $GITHUB_OUTPUT
           else
             echo "rebuild_api=false" >> $GITHUB_OUTPUT
@@ -86,8 +86,7 @@ jobs:
           fi
 
           if [ "$REBUILD_API" = "true" ]; then
-            echo "==> Rebuilding API image from source..."
-            docker build -t kkconnect-api:latest -f api/Dockerfile .
+            echo "==> API code changed — restarting API container..."
             SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE api"
           fi
 
