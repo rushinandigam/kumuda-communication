@@ -38,7 +38,7 @@ jobs:
             --quiet \
             --command="bash -s" << 'DEPLOY_SCRIPT'
           set -e
-          cd ~/kumuda-communication
+          cd /home/rishi/kumuda-communication
 
           echo "==> Pulling latest code..."
           git pull origin main
