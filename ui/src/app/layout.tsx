@@ -9,6 +9,7 @@ import SpinLoader from "@/components/SpinLoader";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/context/AppConfigContext";
+import { OrgConfigProvider } from "@/context/OrgConfigContext";
 import { TelephonyConfigWarningsProvider } from "@/context/TelephonyConfigWarningsContext";
 import { AuthProvider } from "@/lib/auth";
 
@@ -57,14 +58,16 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
           <AuthProvider>
             <AppConfigProvider>
-              <TelephonyConfigWarningsProvider>
-                <Suspense fallback={<SpinLoader />}>
-                  <AppLayout>
-                    {children}
-                  </AppLayout>
-                  <Toaster />
-                </Suspense>
-              </TelephonyConfigWarningsProvider>
+              <Suspense fallback={<SpinLoader />}>
+                <OrgConfigProvider>
+                  <TelephonyConfigWarningsProvider>
+                    <AppLayout>
+                      {children}
+                    </AppLayout>
+                    <Toaster />
+                  </TelephonyConfigWarningsProvider>
+                </OrgConfigProvider>
+              </Suspense>
             </AppConfigProvider>
           </AuthProvider>
         </ThemeProvider>
