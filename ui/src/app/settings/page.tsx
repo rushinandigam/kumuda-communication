@@ -30,13 +30,12 @@ const SERVICES: ServiceConfig[] = [
   {
     id: "telephony",
     title: "Telephony",
-    description: "Configure SIP trunks, phone numbers, and voice providers",
+    description: "Configure SIP trunks, phone numbers, voice agents, and AI models",
     icon: <Phone size={24} />,
     color: "#6B1029",
     status: "configured",
     configLinks: [
-      { label: "Telephony Providers", href: "/telephony-configurations" },
-      { label: "Model Configurations", href: "/model-configurations" },
+      { label: "Open Telephony Settings", href: "/settings/telephony" },
     ],
   },
   {
@@ -47,7 +46,7 @@ const SERVICES: ServiceConfig[] = [
     color: "#25D366",
     status: "active",
     configLinks: [
-      { label: "WhatsApp Settings", href: "/whatsapp" },
+      { label: "WhatsApp Messaging", href: "/whatsapp" },
     ],
   },
   {
@@ -76,20 +75,22 @@ const SERVICES: ServiceConfig[] = [
     color: "#D97706",
     status: "configured",
     configLinks: [
-      { label: "Model Configurations", href: "/model-configurations" },
-      { label: "Tools", href: "/tools" },
-      { label: "Files & Knowledge", href: "/files" },
+      { label: "Model Configurations", href: "/settings/telephony/models" },
+      { label: "Tools", href: "/settings/telephony/tools" },
+      { label: "Files & Knowledge", href: "/settings/telephony/files" },
     ],
   },
   {
     id: "api-keys",
-    title: "API Keys",
-    description: "Manage developer API keys and webhooks",
+    title: "API & Developer",
+    description: "Manage developer API keys, webhooks, and integrations",
     icon: <Key size={24} />,
     color: "#059669",
     status: "configured",
     configLinks: [
-      { label: "API Keys", href: "/api-keys" },
+      { label: "API Keys", href: "/settings/telephony/api-keys" },
+      { label: "Campaigns", href: "/settings/telephony/campaigns" },
+      { label: "Agent Runs", href: "/settings/telephony/agent-runs" },
     ],
   },
 ];
