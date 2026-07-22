@@ -73,7 +73,7 @@ jobs:
               --project=kumuda-d2c11 \
               --quiet \
               --ssh-flag="-o ConnectTimeout=30" \
-              --command="cd ~/kumuda-communication && git pull origin main && bash scripts/deploy.sh $REBUILD_UI $REBUILD_API"
+              --command="cd ~/kumuda-communication && git fetch origin main && git reset --hard origin/main && git clean -fd && bash scripts/deploy.sh $REBUILD_UI $REBUILD_API"
             SSH_EXIT=$?
             if [ $SSH_EXIT -eq 0 ]; then
               echo "Deploy succeeded!"
