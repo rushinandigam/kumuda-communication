@@ -35,14 +35,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
  && uv pip install opencv-python-headless \
  && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"
 
-# Patch pipecat with custom modules from the private fork
-COPY api/patches/run_context.py /opt/venv/lib/python3.13/site-packages/pipecat/utils/run_context.py
-COPY api/patches/enums.py /opt/venv/lib/python3.13/site-packages/pipecat/utils/enums.py
-COPY api/patches/serializers_asterisk.py /opt/venv/lib/python3.13/site-packages/pipecat/serializers/asterisk.py
-COPY api/patches/serializers_vobiz.py /opt/venv/lib/python3.13/site-packages/pipecat/serializers/vobiz.py
-COPY api/patches/serializers_cloudonix.py /opt/venv/lib/python3.13/site-packages/pipecat/serializers/cloudonix.py
-COPY api/patches/serializers_call_strategies.py /opt/venv/lib/python3.13/site-packages/pipecat/serializers/call_strategies.py
-COPY api/patches/silence_mixer.py /opt/venv/lib/python3.13/site-packages/pipecat/audio/mixers/silence_mixer.py
+# Replace stock pipecat with the complete private fork (includes custom
+# serializers, audio mixers, text filters, turn strategies, etc.)
+COPY api/patches/pipecat_fork.tar.gz /tmp/pipecat_fork.tar.gz
+RUN rm -rf /opt/venv/lib/python3.13/site-packages/pipecat && \
+    tar xzf /tmp/pipecat_fork.tar.gz -C /opt/venv/lib/python3.13/site-packages/ && \
+    rm /tmp/pipecat_fork.tar.gz
 
 # Strip cache files, test/example dirs, and type stubs from the venv
 RUN find /opt/venv -type f -name '*.pyc' -delete && \

@@ -67,18 +67,24 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "=== SSH attempt $attempt of 3 ==="
-            if gcloud compute ssh rishi@kkconnect-prod \
+            gcloud compute ssh rishi@kkconnect-prod \
               --zone=asia-south1-a \
               --tunnel-through-iap \
               --project=kumuda-d2c11 \
               --quiet \
               --ssh-flag="-o ConnectTimeout=30" \
-              --command="cd ~/kumuda-communication && git pull origin main && bash scripts/deploy.sh $REBUILD_UI $REBUILD_API"; then
+              --command="cd ~/kumuda-communication && git pull origin main && bash scripts/deploy.sh $REBUILD_UI $REBUILD_API"
+            SSH_EXIT=$?
+            if [ $SSH_EXIT -eq 0 ]; then
               echo "Deploy succeeded!"
               exit 0
+            elif [ $SSH_EXIT -eq 255 ]; then
+              echo "SSH connection failed (exit 255), retrying in 20s..."
+              sleep 20
+            else
+              echo "Deploy script failed with exit code $SSH_EXIT"
+              exit $SSH_EXIT
             fi
-            echo "Attempt $attempt failed, waiting 20s..."
-            sleep 20
           done
-          echo "All SSH attempts failed"
+          echo "All SSH connection attempts failed"
           exit 1

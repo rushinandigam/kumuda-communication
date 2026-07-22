@@ -41,8 +41,19 @@ fi
 
 docker network connect kumuda-communication_app-network caddy 2>/dev/null || true
 
-echo "==> Waiting for health checks..."
-sleep 30
+echo "==> Waiting for containers to stabilize..."
+sleep 15
+
+API_RUNNING=$(docker inspect --format='{{.State.Running}}' kumuda-communication-api-1 2>/dev/null || echo "false")
+if [ "$API_RUNNING" != "true" ]; then
+  echo "==> API container crashed! Last 80 lines of logs:"
+  docker logs kumuda-communication-api-1 --tail 80 2>&1
+  echo ""
+  echo "==> DEPLOY FAILED: API container not running"
+  exit 1
+fi
+
+sleep 15
 curl -sf http://localhost:8000/api/v1/health > /dev/null && echo "API: healthy" || echo "API: UNHEALTHY"
 curl -sf http://localhost:3010/ > /dev/null && echo "UI: healthy" || echo "UI: UNHEALTHY"
 
