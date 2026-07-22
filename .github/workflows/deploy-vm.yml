@@ -67,13 +67,13 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "=== SSH attempt $attempt of 3 ==="
-            gcloud compute ssh rishi@kkconnect-prod \
+            gcloud compute ssh kkconsultancy@kkconnect-prod \
               --zone=asia-south1-a \
               --tunnel-through-iap \
               --project=kumuda-d2c11 \
               --quiet \
               --ssh-flag="-o ConnectTimeout=30" \
-              --command="cd ~/kumuda-communication && git fetch origin main && git reset --hard origin/main && git clean -fd && bash scripts/deploy.sh $REBUILD_UI $REBUILD_API"
+              --command="cd /home/kkconsultancy/kumuda-communication && git fetch origin main && git reset --hard origin/main && git clean -fd -e Caddyfile -e .env && bash scripts/deploy.sh $REBUILD_UI $REBUILD_API"
             SSH_EXIT=$?
             if [ $SSH_EXIT -eq 0 ]; then
               echo "Deploy succeeded!"

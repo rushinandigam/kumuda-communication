@@ -9,7 +9,7 @@ cd /home/kkconsultancy/kumuda-communication
 echo "==> Ensuring latest code..."
 git fetch origin main
 git reset --hard origin/main
-git clean -fd
+git clean -fd -e Caddyfile -e .env
 
 SERVICES_TO_RECREATE=""
 
