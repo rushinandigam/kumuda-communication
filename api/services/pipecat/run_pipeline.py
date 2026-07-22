@@ -234,10 +234,7 @@ def _create_realtime_user_turn_config(provider: str):
         # Silero VAD for early user-turn start and speaking-state tracking.
         return local_vad_turn_config(enable_interruptions=False)
 
-    if provider in {
-        ServiceProviders.OPENAI_REALTIME.value,
-        ServiceProviders.AZURE_REALTIME.value,
-    }:
+    if provider == ServiceProviders.OPENAI_REALTIME.value:
         # OpenAI-compatible Realtime services already emit speaking-state frames
         # and interruption events from the provider, so the aggregator should
         # follow those external signals rather than run its own local VAD.

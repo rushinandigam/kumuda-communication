@@ -2,8 +2,6 @@ from typing import Optional, TypedDict
 
 import httpx
 import openai
-from deepgram import DeepgramClient
-from groq import Groq
 
 # try:
 #     from pyneuphonic import Neuphonic
@@ -287,6 +285,8 @@ class UserConfigurationValidator:
             )
 
     def _check_deepgram_api_key(self, model: str, api_key: str) -> bool:
+        from deepgram import DeepgramClient
+
         try:
             deepgram = DeepgramClient(api_key=api_key)
             deepgram.manage.v1.projects.list()
@@ -299,6 +299,8 @@ class UserConfigurationValidator:
             )
 
     def _check_groq_api_key(self, model: str, api_key: str) -> bool:
+        from groq import Groq
+
         client = Groq(api_key=api_key)
         try:
             client.models.list()
