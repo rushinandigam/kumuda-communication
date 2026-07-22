@@ -23,7 +23,7 @@ LOCAL_REDIS_URL    := redis://:$(REDIS_PASSWORD)@localhost:6379
 ## Open IAP SSH tunnel to forward Postgres and Redis from VM
 tunnel:
 	@echo "Opening IAP tunnel — Postgres(:5432) + Redis(:6379) from $(VM)..."
-	@gcloud compute ssh rishi@$(VM) \
+	@gcloud compute ssh kkconsultancy@$(VM) \
 		--zone=$(ZONE) \
 		--tunnel-through-iap \
 		--project=$(PROJECT) \

@@ -31,6 +31,8 @@ from api.routes.workflow import router as workflow_router
 from api.routes.workflow_embed import router as workflow_embed_router
 from api.routes.workflow_recording import router as workflow_recording_router
 from api.routes.whatsapp_templates import router as whatsapp_templates_router
+from api.routes.email import router as email_router
+from api.routes.manual_call import router as manual_call_router
 from api.routes.workflow_text_chat import router as workflow_text_chat_router
 from api.services.integrations import all_routers
 
@@ -66,6 +68,8 @@ router.include_router(auth_router)
 router.include_router(node_types_router)
 router.include_router(agent_stream_router)
 router.include_router(whatsapp_templates_router)
+router.include_router(manual_call_router)
+router.include_router(email_router)
 
 for _integration_router in all_routers():
     router.include_router(_integration_router)

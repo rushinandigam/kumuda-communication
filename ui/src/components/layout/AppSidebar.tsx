@@ -6,8 +6,10 @@ import {
   Home,
   LogOut,
   type LucideIcon,
+  Mail,
   MessageCircle,
   Phone,
+  PhoneCall,
   Settings,
   Users,
 } from "lucide-react";
@@ -78,6 +80,16 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Voice",
         url: "/workflow",
         icon: Phone,
+      },
+      {
+        title: "Dial Pad",
+        url: "/dial-pad",
+        icon: PhoneCall,
+      },
+      {
+        title: "Email",
+        url: "/email",
+        icon: Mail,
       },
       {
         title: "Contacts",
@@ -218,6 +230,7 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroup>
         ))}
+
       </SidebarContent>
 
       <SidebarFooter className={cn("p-3", isCollapsed && "p-2")}>
