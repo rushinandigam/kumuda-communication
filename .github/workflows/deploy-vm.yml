@@ -63,7 +63,7 @@ jobs:
           REBUILD_UI: ${{ steps.changes.outputs.rebuild_ui }}
           REBUILD_API: ${{ steps.changes.outputs.rebuild_api }}
         run: |
-          gcloud compute ssh kkconsultancy@kkconnect-prod \
+          gcloud compute ssh rishi@kkconnect-prod \
             --zone=asia-south1-a \
             --tunnel-through-iap \
             --project=kumuda-d2c11 \
