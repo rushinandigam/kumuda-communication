@@ -35,7 +35,7 @@ jobs:
             echo "rebuild_ui=false" >> $GITHUB_OUTPUT
           fi
 
-          if [ -n "$API_CHANGED" ]; then
+          if [ -n "$API_CHANGED" ] || [ -n "$OTHER_CHANGED" ]; then
             echo "rebuild_api=true" >> $GITHUB_OUTPUT
           else
             echo "rebuild_api=false" >> $GITHUB_OUTPUT
@@ -63,7 +63,7 @@ jobs:
           REBUILD_UI: ${{ steps.changes.outputs.rebuild_ui }}
           REBUILD_API: ${{ steps.changes.outputs.rebuild_api }}
         run: |
-          gcloud compute ssh rishi@kkconnect-prod \
+          gcloud compute ssh kkconsultancy@kkconnect-prod \
             --zone=asia-south1-a \
             --tunnel-through-iap \
             --project=kumuda-d2c11 \
@@ -86,8 +86,19 @@ jobs:
           fi
 
           if [ "$REBUILD_API" = "true" ]; then
-            echo "==> API code changed — restarting API container..."
+            echo "==> API code changed — rebuilding API image..."
+            docker build -t kkconnect-api:latest -f api/Dockerfile .
             SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE api"
+          fi
+
+          # If API is unhealthy/stopped, always restart it (even if code didn't change)
+          API_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' kumuda-communication-api-1 2>/dev/null || echo "missing")
+          API_RUNNING=$(docker inspect --format='{{.State.Running}}' kumuda-communication-api-1 2>/dev/null || echo "false")
+          if [ "$API_RUNNING" != "true" ] || [ "$API_HEALTH" = "unhealthy" ]; then
+            echo "==> API container is not healthy (status: $API_HEALTH, running: $API_RUNNING) — restarting..."
+            if echo "$SERVICES_TO_RECREATE" | grep -qv "api"; then
+              SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE api"
+            fi
           fi
 
           if [ -n "$SERVICES_TO_RECREATE" ]; then

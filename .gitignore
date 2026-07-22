@@ -1,8 +1,9 @@
 __pycache__
 .DS_Store
 .env
-.env.prod
-.env.test
+.env.*
+!.env.example
+ui/.env.local
 .claude
 # Conductor personal/per-machine overrides (settings.toml IS committed)
 .conductor/settings.local.toml
