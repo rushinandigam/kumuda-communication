@@ -4,10 +4,12 @@ set -e
 REBUILD_UI="${1:-true}"
 REBUILD_API="${2:-true}"
 
-cd ~/kumuda-communication
+cd /home/kkconsultancy/kumuda-communication
 
-echo "==> Pulling latest code..."
-git pull origin main
+echo "==> Ensuring latest code..."
+git fetch origin main
+git reset --hard origin/main
+git clean -fd
 
 SERVICES_TO_RECREATE=""
 
