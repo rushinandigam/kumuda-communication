@@ -53,68 +53,32 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Pre-generate SSH keys
+      - name: Pre-generate SSH keys and wait for propagation
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -b 3072 -f ~/.ssh/google_compute_engine -N "" -q
+          echo "Waiting for SSH key to propagate..."
+          sleep 30
 
       - name: Deploy to VM
         env:
           REBUILD_UI: ${{ steps.changes.outputs.rebuild_ui }}
           REBUILD_API: ${{ steps.changes.outputs.rebuild_api }}
         run: |
-          gcloud compute ssh rishi@kkconnect-prod \
-            --zone=asia-south1-a \
-            --tunnel-through-iap \
-            --project=kumuda-d2c11 \
-            --quiet \
-            --command="bash -s $REBUILD_UI $REBUILD_API" << 'DEPLOY_SCRIPT'
-          set -e
-          REBUILD_UI="${1:-true}"
-          REBUILD_API="${2:-true}"
-          cd ~/kumuda-communication
-
-          echo "==> Pulling latest code..."
-          git pull origin main
-
-          SERVICES_TO_RECREATE=""
-
-          if [ "$REBUILD_UI" = "true" ]; then
-            echo "==> Rebuilding UI image from source..."
-            docker build -t kkconnect-ui:latest -f ui/Dockerfile .
-            SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE ui"
-          fi
-
-          if [ "$REBUILD_API" = "true" ]; then
-            echo "==> API code changed — rebuilding API image..."
-            docker build -t kkconnect-api:latest -f api/Dockerfile .
-            SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE api"
-          fi
-
-          # If API is unhealthy/stopped, always restart it (even if code didn't change)
-          API_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' kumuda-communication-api-1 2>/dev/null || echo "missing")
-          API_RUNNING=$(docker inspect --format='{{.State.Running}}' kumuda-communication-api-1 2>/dev/null || echo "false")
-          if [ "$API_RUNNING" != "true" ] || [ "$API_HEALTH" = "unhealthy" ]; then
-            echo "==> API container is not healthy (status: $API_HEALTH, running: $API_RUNNING) — restarting..."
-            if echo "$SERVICES_TO_RECREATE" | grep -qv "api"; then
-              SERVICES_TO_RECREATE="$SERVICES_TO_RECREATE api"
+          for attempt in 1 2 3; do
+            echo "=== SSH attempt $attempt of 3 ==="
+            if gcloud compute ssh rishi@kkconnect-prod \
+              --zone=asia-south1-a \
+              --tunnel-through-iap \
+              --project=kumuda-d2c11 \
+              --quiet \
+              --ssh-flag="-o ConnectTimeout=30" \
+              --command="cd ~/kumuda-communication && git pull origin main && bash scripts/deploy.sh $REBUILD_UI $REBUILD_API"; then
+              echo "Deploy succeeded!"
+              exit 0
             fi
-          fi
-
-          if [ -n "$SERVICES_TO_RECREATE" ]; then
-            echo "==> Recreating containers:$SERVICES_TO_RECREATE"
-            docker compose up -d --force-recreate $SERVICES_TO_RECREATE
-          else
-            echo "==> No containers to rebuild, just pulling code."
-          fi
-
-          echo "==> Re-linking Caddy network..."
-          docker network connect kumuda-communication_app-network caddy 2>/dev/null || true
-
-          echo "==> Waiting for health checks..."
-          sleep 30
-          curl -sf http://localhost:8000/api/v1/health > /dev/null && echo "API: healthy" || echo "API: UNHEALTHY"
-          curl -sf http://localhost:3010/ > /dev/null && echo "UI: healthy" || echo "UI: UNHEALTHY"
-
-          echo "==> Deploy complete!"
-          DEPLOY_SCRIPT
+            echo "Attempt $attempt failed, waiting 20s..."
+            sleep 20
+          done
+          echo "All SSH attempts failed"
+          exit 1
