@@ -8,10 +8,7 @@ from api.constants import APP_ROOT_DIR
 from api.services.pipecat.audio_file_cache import get_cached_ambient_noise_path
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 
-try:
-    from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
-except ImportError:
-    from pipecat.audio.mixers.base_audio_mixer import BaseAudioMixer as SilenceAudioMixer
+from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 
 librnnoise_path = os.path.normpath(
     str(APP_ROOT_DIR / "native" / "rnnoise" / "librnnoise.so")

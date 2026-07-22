@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { getWorkflowsApiV1WorkflowFetchGet, listFoldersApiV1FolderGet } from "@/client/sdk.gen";
 import type { FolderResponse, WorkflowListResponse } from "@/client/types.gen";
 import { Card, CardContent } from "@/components/ui/card";
+import { DialPad } from "@/components/telephony/DialPad";
 import { CreateWorkflowButton } from "@/components/workflow/CreateWorkflowButton";
 import { AgentFolderView } from "@/components/workflow/folders/AgentFolderView";
 import { CreateFolderButton } from "@/components/workflow/folders/CreateFolderButton";
@@ -65,19 +66,34 @@ export default function VoiceAgentsPage() {
           <CreateWorkflowButton />
         </div>
       </div>
-      <Suspense
-        fallback={
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <Card key={i}>
-                <CardContent className="h-32 animate-pulse bg-muted rounded-lg" />
-              </Card>
-            ))}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
+        {/* Agent list */}
+        <Suspense
+          fallback={
+            <div className="grid gap-4 md:grid-cols-2">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardContent className="h-32 animate-pulse bg-muted rounded-lg" />
+                </Card>
+              ))}
+            </div>
+          }
+        >
+          <WorkflowList />
+        </Suspense>
+
+        {/* Dial pad panel */}
+        <div className="lg:border-l lg:pl-6 border-border">
+          <div className="sticky top-[100px]">
+            <h3 className="text-lg font-semibold mb-1">Quick Call</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Dial a number to initiate an outbound call via your voice agent
+            </p>
+            <DialPad />
           </div>
-        }
-      >
-        <WorkflowList />
-      </Suspense>
+        </div>
+      </div>
     </div>
   );
 }
