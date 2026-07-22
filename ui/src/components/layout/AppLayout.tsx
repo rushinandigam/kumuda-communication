@@ -37,7 +37,6 @@ function AppHeader() {
 
   const displayName =
     user?.displayName ||
-    user?.name ||
     (user as LocalUser | undefined)?.email ||
     "User";
   const userInitials = displayName
