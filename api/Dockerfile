@@ -30,7 +30,7 @@ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
 # Layer 2: pipecat deps. Install from PyPI then patch with custom modules
 # (run_context, enums) that were in the private fork.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install 'pipecat-ai[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]' \
+    uv pip install 'pipecat-ai[cartesia,deepgram,openai,elevenlabs,groq,google,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]==1.5.0' \
  && uv pip uninstall opencv-python \
  && uv pip install opencv-python-headless \
  && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"
