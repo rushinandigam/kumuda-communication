@@ -416,11 +416,19 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
 
     logger.info(f"[{session_id}] WebRTC→Telephony bridge started, stream_id={stream_id}")
 
+    frame_count = 0
+    sent_count = 0
+    null_count = 0
+    timeout_count = 0
+
     try:
         while not hangup_event.is_set():
             try:
                 frame = await asyncio.wait_for(audio_track.recv(), timeout=2.0)
             except asyncio.TimeoutError:
+                timeout_count += 1
+                if timeout_count <= 3 or timeout_count % 10 == 0:
+                    logger.warning(f"[{session_id}] WebRTC recv timeout #{timeout_count}, state={pc._pc.connectionState}")
                 if pc._pc.connectionState != "connected":
                     logger.warning(f"[{session_id}] WebRTC disconnected during bridge")
                     break
@@ -430,8 +438,15 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
                 break
 
             if frame is None:
+                null_count += 1
                 await asyncio.sleep(0.01)
                 continue
+
+            frame_count += 1
+            if frame_count == 1:
+                logger.info(f"[{session_id}] First WebRTC frame received: samples={frame.samples}, rate={frame.sample_rate}, format={frame.format.name}, layout={frame.layout.name}")
+            elif frame_count % 500 == 0:
+                logger.info(f"[{session_id}] WebRTC→Tel stats: frames={frame_count}, sent={sent_count}, nulls={null_count}, timeouts={timeout_count}")
 
             # Convert av.AudioFrame to raw PCM bytes (s16 mono)
             frame_array = frame.to_ndarray()
@@ -463,10 +478,12 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
                 })
                 try:
                     await tel_ws.send_text(msg)
+                    sent_count += 1
                 except Exception as e:
                     logger.warning(f"[{session_id}] Failed to send to telephony WS: {e}")
                     break
             else:
+                logger.warning(f"[{session_id}] Telephony WS not available, frames={frame_count}, sent={sent_count}")
                 break
 
     except asyncio.CancelledError:
