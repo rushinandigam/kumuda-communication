@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 type EmailHistoryEntry = {
@@ -27,6 +28,7 @@ type EmailConfigState = {
 } | null;
 
 export default function EmailPage() {
+  const { getAccessToken } = useAuth();
   const [config, setConfig] = useState<EmailConfigState>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -41,7 +43,10 @@ export default function EmailPage() {
 
   const fetchConfig = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/email/config");
+      const token = await getAccessToken();
+      const res = await fetch("/api/v1/email/config", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const data = await res.json();
         setConfig(data);
@@ -51,11 +56,14 @@ export default function EmailPage() {
     } catch {
       setConfig(null);
     }
-  }, []);
+  }, [getAccessToken]);
 
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/email/history");
+      const token = await getAccessToken();
+      const res = await fetch("/api/v1/email/history", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const data = await res.json();
         setHistory(data);
@@ -63,7 +71,7 @@ export default function EmailPage() {
     } catch {
       // ignore
     }
-  }, []);
+  }, [getAccessToken]);
 
   useEffect(() => {
     const load = async () => {
@@ -85,9 +93,10 @@ export default function EmailPage() {
       const recipients = to.split(",").map((e) => e.trim()).filter(Boolean);
       const ccList = cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : undefined;
 
+      const token = await getAccessToken();
       const res = await fetch("/api/v1/email/send", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           to: recipients,
           cc: ccList?.length ? ccList : undefined,

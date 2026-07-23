@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/lib/auth";
 
 export default function EmailSettingsPage() {
+  const { getAccessToken } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -29,7 +31,10 @@ export default function EmailSettingsPage() {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await fetch("/api/v1/email/config");
+        const token = await getAccessToken();
+        const res = await fetch("/api/v1/email/config", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (res.ok) {
           const data = await res.json();
           if (data) {
@@ -47,7 +52,7 @@ export default function EmailSettingsPage() {
       }
     };
     fetchConfig();
-  }, []);
+  }, [getAccessToken]);
 
   const handleSave = async () => {
     if (!senderEmail || !appPassword) {
@@ -60,9 +65,10 @@ export default function EmailSettingsPage() {
     setSuccess(null);
 
     try {
+      const token = await getAccessToken();
       const res = await fetch("/api/v1/email/config", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           smtp_host: smtpHost,
           smtp_port: Number(smtpPort),
@@ -90,7 +96,8 @@ export default function EmailSettingsPage() {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      await fetch("/api/v1/email/config", { method: "DELETE" });
+      const token = await getAccessToken();
+      await fetch("/api/v1/email/config", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
       setIsConfigured(false);
       setSenderEmail("");
       setSenderName("");
