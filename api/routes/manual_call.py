@@ -22,6 +22,7 @@ from aiortc.sdp import candidate_from_sdp
 from av import AudioFrame
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from loguru import logger
+from pipecat.audio.utils import create_stream_resampler, pcm_to_ulaw, ulaw_to_pcm
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pydantic import BaseModel
 from starlette.responses import HTMLResponse
@@ -412,62 +413,50 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     audio_track._receiver._enabled = True
 
     stream_id = session.get("vobiz_stream_id")
-    ratecv_state = None  # Preserve resampling state across frames
+    output_resampler = create_stream_resampler()
 
     logger.info(f"[{session_id}] WebRTC→Telephony bridge started, stream_id={stream_id}")
 
     frame_count = 0
     sent_count = 0
-    null_count = 0
-    timeout_count = 0
 
     try:
         while not hangup_event.is_set():
             try:
                 frame = await asyncio.wait_for(audio_track.recv(), timeout=2.0)
             except asyncio.TimeoutError:
-                timeout_count += 1
-                if timeout_count <= 3 or timeout_count % 10 == 0:
-                    logger.warning(f"[{session_id}] WebRTC recv timeout #{timeout_count}, state={pc._pc.connectionState}")
                 if pc._pc.connectionState != "connected":
-                    logger.warning(f"[{session_id}] WebRTC disconnected during bridge")
                     break
                 continue
             except MediaStreamError:
-                logger.info(f"[{session_id}] WebRTC media stream ended")
                 break
 
             if frame is None:
-                null_count += 1
                 await asyncio.sleep(0.01)
                 continue
 
             frame_count += 1
             if frame_count == 1:
-                logger.info(f"[{session_id}] First WebRTC frame received: samples={frame.samples}, rate={frame.sample_rate}, format={frame.format.name}, layout={frame.layout.name}")
-            elif frame_count % 500 == 0:
-                logger.info(f"[{session_id}] WebRTC→Tel stats: frames={frame_count}, sent={sent_count}, nulls={null_count}, timeouts={timeout_count}")
+                logger.info(f"[{session_id}] First WebRTC frame: samples={frame.samples}, rate={frame.sample_rate}, format={frame.format.name}, layout={frame.layout.name}")
 
             # Convert av.AudioFrame to raw PCM bytes (s16 mono)
+            # Frame comes as stereo s16 at 48kHz — convert to mono
             frame_array = frame.to_ndarray()
             if frame_array.ndim > 1 and frame_array.shape[0] > 1:
-                pcm_bytes = frame_array.mean(axis=0).astype(np.int16).tobytes()
+                # Stereo: average channels
+                mono = frame_array.mean(axis=0).astype(np.int16)
             elif frame_array.ndim > 1:
-                pcm_bytes = frame_array[0].astype(np.int16).tobytes()
+                mono = frame_array[0].astype(np.int16)
             else:
-                pcm_bytes = frame_array.astype(np.int16).tobytes()
+                mono = frame_array.astype(np.int16)
+            pcm_bytes = mono.tobytes()
 
-            # Resample from frame.sample_rate to 8000 Hz (preserve state for continuity)
-            src_rate = frame.sample_rate
-            if src_rate != 8000:
-                pcm_bytes, ratecv_state = audioop.ratecv(
-                    pcm_bytes, 2, 1, src_rate, 8000, ratecv_state
-                )
+            # Use pipecat's high-quality SOXR resampler + MULAW conversion
+            ulaw_bytes = await pcm_to_ulaw(pcm_bytes, frame.sample_rate, 8000, output_resampler)
+            if not ulaw_bytes:
+                continue
 
-            # Convert PCM to MULAW
-            ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
-
-            # Send to Vobiz WS (must use "playAudio" event with contentType/sampleRate)
+            # Send to Vobiz WS
             tel_ws = session.get("telephony_ws")
             if tel_ws and tel_ws.application_state == WebSocketState.CONNECTED:
                 payload = base64.b64encode(ulaw_bytes).decode("utf-8")
@@ -487,7 +476,6 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
                     logger.warning(f"[{session_id}] Failed to send to telephony WS: {e}")
                     break
             else:
-                logger.warning(f"[{session_id}] Telephony WS not available, frames={frame_count}, sent={sent_count}")
                 break
 
     except asyncio.CancelledError:
@@ -508,7 +496,7 @@ async def _bridge_telephony_to_webrtc(session_id: str, session: dict):
         logger.error(f"[{session_id}] No telephony WS available")
         return
 
-    ratecv_state = None  # Preserve resampling state for continuity
+    input_resampler = create_stream_resampler()
     logger.info(f"[{session_id}] Telephony→WebRTC bridge started")
 
     try:
@@ -535,13 +523,8 @@ async def _bridge_telephony_to_webrtc(session_id: str, session: dict):
 
                 ulaw_bytes = base64.b64decode(payload_b64)
 
-                # Convert MULAW to PCM (16-bit signed)
-                pcm_bytes = audioop.ulaw2lin(ulaw_bytes, 2)
-
-                # Resample from 8000 Hz to 48000 Hz (preserve state for continuity)
-                pcm_bytes, ratecv_state = audioop.ratecv(
-                    pcm_bytes, 2, 1, 8000, 48000, ratecv_state
-                )
+                # Use pipecat's SOXR resampler: MULAW 8kHz → PCM 48kHz
+                pcm_bytes = await ulaw_to_pcm(ulaw_bytes, 8000, 48000, input_resampler)
 
                 # Feed to the audio track for WebRTC output
                 telephony_audio_track.enqueue_pcm(pcm_bytes)
