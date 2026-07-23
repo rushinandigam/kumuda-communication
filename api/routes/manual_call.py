@@ -385,45 +385,61 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     pc: SmallWebRTCConnection = session["webrtc_connection"]
     hangup_event = session["hangup_event"]
 
+    # Wait for WebRTC to be fully connected
+    for _ in range(50):  # up to 5 seconds
+        if pc.is_connected():
+            break
+        await asyncio.sleep(0.1)
+
+    if not pc.is_connected():
+        logger.error(f"[{session_id}] WebRTC not connected after 5s, cannot bridge audio")
+        return
+
     # Get the audio input track from WebRTC
     audio_track = pc.audio_input_track()
     if not audio_track:
         logger.error(f"[{session_id}] No audio input track available from WebRTC")
         return
 
-    # Enable receiving
+    # recv() auto-enables the receiver, but pre-enable to avoid any race
     audio_track._receiver._enabled = True
 
-    tel_ws = session.get("telephony_ws")
     stream_id = session.get("vobiz_stream_id")
+    ratecv_state = None  # Preserve resampling state across frames
+
+    logger.info(f"[{session_id}] WebRTC→Telephony bridge started, stream_id={stream_id}")
 
     try:
         while not hangup_event.is_set():
             try:
-                frame = await asyncio.wait_for(audio_track._track.recv(), timeout=1.0)
+                frame = await asyncio.wait_for(audio_track.recv(), timeout=2.0)
             except asyncio.TimeoutError:
+                if not pc.is_connected():
+                    break
                 continue
             except MediaStreamError:
+                logger.info(f"[{session_id}] WebRTC media stream ended")
                 break
 
             if frame is None:
+                await asyncio.sleep(0.01)
                 continue
 
             # Convert av.AudioFrame to raw PCM bytes (s16 mono)
-            # aiortc gives us AudioFrame with shape (channels, samples)
             frame_array = frame.to_ndarray()
             if frame_array.ndim > 1 and frame_array.shape[0] > 1:
-                # stereo -> mono: average channels
                 pcm_bytes = frame_array.mean(axis=0).astype(np.int16).tobytes()
             elif frame_array.ndim > 1:
                 pcm_bytes = frame_array[0].astype(np.int16).tobytes()
             else:
                 pcm_bytes = frame_array.astype(np.int16).tobytes()
 
-            # Resample from frame.sample_rate to 8000 Hz
+            # Resample from frame.sample_rate to 8000 Hz (preserve state for continuity)
             src_rate = frame.sample_rate
             if src_rate != 8000:
-                pcm_bytes, _ = audioop.ratecv(pcm_bytes, 2, 1, src_rate, 8000, None)
+                pcm_bytes, ratecv_state = audioop.ratecv(
+                    pcm_bytes, 2, 1, src_rate, 8000, ratecv_state
+                )
 
             # Convert PCM to MULAW
             ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
@@ -439,7 +455,8 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
                 })
                 try:
                     await tel_ws.send_text(msg)
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"[{session_id}] Failed to send to telephony WS: {e}")
                     break
             else:
                 break
@@ -447,7 +464,9 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        logger.error(f"[{session_id}] WebRTC→Telephony bridge error: {e}")
+        logger.error(f"[{session_id}] WebRTC→Telephony bridge error: {e}", exc_info=True)
+    finally:
+        logger.info(f"[{session_id}] WebRTC→Telephony bridge ended")
 
 
 async def _bridge_telephony_to_webrtc(session_id: str, session: dict):
@@ -460,13 +479,16 @@ async def _bridge_telephony_to_webrtc(session_id: str, session: dict):
         logger.error(f"[{session_id}] No telephony WS available")
         return
 
+    ratecv_state = None  # Preserve resampling state for continuity
+    logger.info(f"[{session_id}] Telephony→WebRTC bridge started")
+
     try:
         while not hangup_event.is_set():
             if tel_ws.application_state != WebSocketState.CONNECTED:
                 break
 
             try:
-                data = await asyncio.wait_for(tel_ws.receive_text(), timeout=1.0)
+                data = await asyncio.wait_for(tel_ws.receive_text(), timeout=2.0)
             except asyncio.TimeoutError:
                 continue
             except WebSocketDisconnect:
@@ -487,8 +509,10 @@ async def _bridge_telephony_to_webrtc(session_id: str, session: dict):
                 # Convert MULAW to PCM (16-bit signed)
                 pcm_bytes = audioop.ulaw2lin(ulaw_bytes, 2)
 
-                # Resample from 8000 Hz to 48000 Hz (WebRTC output rate)
-                pcm_bytes, _ = audioop.ratecv(pcm_bytes, 2, 1, 8000, 48000, None)
+                # Resample from 8000 Hz to 48000 Hz (preserve state for continuity)
+                pcm_bytes, ratecv_state = audioop.ratecv(
+                    pcm_bytes, 2, 1, 8000, 48000, ratecv_state
+                )
 
                 # Feed to the audio track for WebRTC output
                 telephony_audio_track.enqueue_pcm(pcm_bytes)
@@ -501,7 +525,9 @@ async def _bridge_telephony_to_webrtc(session_id: str, session: dict):
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        logger.error(f"[{session_id}] Telephony→WebRTC bridge error: {e}")
+        logger.error(f"[{session_id}] Telephony→WebRTC bridge error: {e}", exc_info=True)
+    finally:
+        logger.info(f"[{session_id}] Telephony→WebRTC bridge ended")
 
 
 async def _hangup_pstn_call(session: dict):
