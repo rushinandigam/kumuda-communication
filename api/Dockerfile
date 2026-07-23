@@ -137,6 +137,8 @@ ENV VIRTUAL_ENV=/opt/venv \
 ENV PYTHONDONTWRITEBYTECODE=1
 # Unbuffered output for better container logging
 ENV PYTHONUNBUFFERED=1
+# Use certifi CA bundle for SSL verification (fixes aiohttp cert errors)
+ENV SSL_CERT_FILE=/opt/venv/lib/python3.13/site-packages/certifi/cacert.pem
 
 # Copy application code (chown at copy-time avoids a duplicate /app layer
 # from a later `RUN chown -R`, which would double the on-disk size of /app).

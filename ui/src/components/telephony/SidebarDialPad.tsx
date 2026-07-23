@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getTurnCredentialsApiV1TurnCredentialsGet,
+  initiateCallApiV1TelephonyInitiateCallPost,
   listPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGet,
   listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
 } from "@/client/sdk.gen";
@@ -20,6 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { client } from "@/client/client.gen";
+import { useAuth } from "@/lib/auth";
+import { resolveBrowserBackendUrl } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 
 const DIAL_KEYS = [
@@ -44,6 +48,7 @@ const KEY_LETTERS: Record<string, string> = {
 type CallStatus = "idle" | "connecting" | "ringing" | "connected" | "ended" | "failed";
 
 export function SidebarDialPad() {
+  const { getAccessToken } = useAuth();
   const [phoneNumber, setPhoneNumber] = useState("");
   const [callStatus, setCallStatus] = useState<CallStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -154,10 +159,15 @@ export function SidebarDialPad() {
     setError(null);
 
     try {
+      const token = await getAccessToken();
+
       // 1. Initiate manual call session on backend
       const initiateRes = await fetch("/api/v1/manual-call/initiate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           phone_number: phoneNumber.startsWith("+") ? phoneNumber : `+${phoneNumber}`,
           telephony_configuration_id: selectedConfigId ? Number(selectedConfigId) : null,
@@ -204,9 +214,10 @@ export function SidebarDialPad() {
         }
       };
 
-      // 5. Connect signaling WebSocket
-      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${wsProtocol}//${window.location.host}/api/v1/manual-call/ws/${session_id}`);
+      // 5. Connect signaling WebSocket (connect directly to backend, not through Next.js proxy)
+      const baseUrl = client.getConfig().baseUrl || resolveBrowserBackendUrl();
+      const wsUrl = baseUrl.replace(/^http/, "ws");
+      const ws = new WebSocket(`${wsUrl}/api/v1/manual-call/ws/${session_id}?token=${token}`);
       wsRef.current = ws;
 
       ws.onopen = async () => {

@@ -110,12 +110,12 @@ _manual_call_sessions: dict = {}
 
 
 @router.websocket("/ws/{session_id}")
-async def manual_call_signaling(websocket: WebSocket, session_id: str):
+async def manual_call_signaling(
+    websocket: WebSocket,
+    session_id: str,
+    user: UserModel = Depends(get_user_ws),
+):
     """WebSocket signaling for manual call WebRTC + PSTN bridge."""
-    user = await get_user_ws(websocket)
-    if not user:
-        await websocket.close(code=4401, reason="Unauthorized")
-        return
 
     session = _manual_call_sessions.pop(session_id, None)
     if not session:

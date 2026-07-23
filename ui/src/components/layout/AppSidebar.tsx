@@ -7,6 +7,7 @@ import {
   LogOut,
   type LucideIcon,
   Mail,
+  Megaphone,
   MessageCircle,
   Phone,
   PhoneCall,
@@ -18,7 +19,6 @@ import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
-import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -42,7 +42,6 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -90,6 +89,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Email",
         url: "/email",
         icon: Mail,
+      },
+      {
+        title: "Campaigns",
+        url: "/campaigns",
+        icon: Megaphone,
       },
       {
         title: "Contacts",
@@ -234,59 +238,41 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className={cn("p-3", isCollapsed && "p-2")}>
-        <div className="space-y-2">
-          <div
-            className={cn(
-              "flex items-center justify-between gap-1 rounded-full border border-border/60 bg-muted/30 p-1",
-              isCollapsed && "flex-col"
-            )}
-          >
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 cursor-pointer rounded-full border border-border/80 bg-brand text-white hover:bg-brand-dark hover:text-white"
-                >
-                  <span className="text-xs font-medium">{userInitials}</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-56">
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col space-y-1">
-                    {(user as LocalUser | undefined)?.email && (
-                      <p className="text-xs text-muted-foreground">{(user as LocalUser).email}</p>
-                    )}
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          <div className="mt-1 flex justify-center">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div>
-                  <ThemeToggle
-                    showLabel={false}
-                    className="rounded-full hover:bg-accent hover:text-accent-foreground"
-                  />
+        <div
+          className={cn(
+            "flex items-center justify-between gap-1 rounded-full border border-border/60 bg-muted/30 p-1",
+            isCollapsed && "flex-col"
+          )}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 cursor-pointer rounded-full border border-border/80 bg-brand text-white hover:bg-brand-dark hover:text-white"
+              >
+                <span className="text-xs font-medium">{userInitials}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  {(user as LocalUser | undefined)?.email && (
+                    <p className="text-xs text-muted-foreground">{(user as LocalUser).email}</p>
+                  )}
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side={isCollapsed ? "right" : "top"}>
-                <p>Toggle theme</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </SidebarFooter>
       <SidebarRail />
