@@ -235,6 +235,9 @@ async def manual_call_signaling(
                     },
                 })
 
+                # Mark connection as invoked so is_connected() works
+                await pc.connect()
+
                 # Start the PSTN call in background
                 call_task = asyncio.create_task(
                     _initiate_pstn_call(session_id, session, websocket)
@@ -385,14 +388,18 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     pc: SmallWebRTCConnection = session["webrtc_connection"]
     hangup_event = session["hangup_event"]
 
-    # Wait for WebRTC to be fully connected
-    for _ in range(50):  # up to 5 seconds
-        if pc.is_connected():
+    # Wait for WebRTC ICE to be connected (check underlying aiortc state directly)
+    for _ in range(100):  # up to 10 seconds
+        state = pc._pc.connectionState
+        if state == "connected":
             break
+        if state in ("failed", "closed"):
+            logger.error(f"[{session_id}] WebRTC connection {state}, cannot bridge audio")
+            return
         await asyncio.sleep(0.1)
 
-    if not pc.is_connected():
-        logger.error(f"[{session_id}] WebRTC not connected after 5s, cannot bridge audio")
+    if pc._pc.connectionState != "connected":
+        logger.error(f"[{session_id}] WebRTC not connected after 10s (state={pc._pc.connectionState}), cannot bridge audio")
         return
 
     # Get the audio input track from WebRTC
@@ -414,7 +421,8 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
             try:
                 frame = await asyncio.wait_for(audio_track.recv(), timeout=2.0)
             except asyncio.TimeoutError:
-                if not pc.is_connected():
+                if pc._pc.connectionState != "connected":
+                    logger.warning(f"[{session_id}] WebRTC disconnected during bridge")
                     break
                 continue
             except MediaStreamError:
