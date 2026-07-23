@@ -136,6 +136,28 @@ export function SidebarDialPad() {
     setPhoneNumber((prev) => prev.slice(0, -1));
   }, []);
 
+  // Allow typing numbers from keyboard when not focused on the input
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (callStatus !== "idle" && callStatus !== "failed" && callStatus !== "ended") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (/^[0-9*#]$/.test(e.key)) {
+        setPhoneNumber((prev) => prev + e.key);
+        setError(null);
+      } else if (e.key === "+" && phoneNumber === "") {
+        setPhoneNumber("+");
+      } else if (e.key === "Backspace") {
+        setPhoneNumber((prev) => prev.slice(0, -1));
+      } else if (e.key === "Enter" && phoneNumber) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [callStatus, phoneNumber]);
+
   const cleanup = useCallback(() => {
     stopTimer();
     if (wsRef.current) {
@@ -360,7 +382,7 @@ export function SidebarDialPad() {
         </Select>
       )}
 
-      {/* Phone number display */}
+      {/* Phone number display/input */}
       <div className="w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-center min-h-[44px] flex items-center justify-center">
         {isInCall ? (
           <div className="flex flex-col items-center gap-0.5">
@@ -377,12 +399,23 @@ export function SidebarDialPad() {
             </span>
           </div>
         ) : (
-          <span className={cn(
-            "font-mono tracking-wider transition-all",
-            phoneNumber ? "text-lg font-semibold text-foreground" : "text-sm text-muted-foreground"
-          )}>
-            {phoneNumber || "Enter number"}
-          </span>
+          <input
+            type="tel"
+            value={phoneNumber}
+            onChange={(e) => {
+              const val = e.target.value.replace(/[^0-9+*#]/g, "");
+              setPhoneNumber(val);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && phoneNumber) {
+                e.preventDefault();
+                handleCall();
+              }
+            }}
+            placeholder="Enter number"
+            className="w-full bg-transparent text-center font-mono text-lg font-semibold text-foreground placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground outline-none"
+          />
         )}
       </div>
 

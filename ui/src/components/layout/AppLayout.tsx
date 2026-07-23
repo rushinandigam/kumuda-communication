@@ -7,7 +7,7 @@ import React, { ReactNode, useEffect, useRef, useState } from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
-import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
 
@@ -48,7 +48,7 @@ function AppHeader() {
 
   return (
     <header
-      className="sticky top-0 z-50 border-b border-black/10"
+      className="shrink-0 z-50 border-b border-black/10"
       style={{
         background: "var(--brand)",
         boxShadow: scrolled ? "0 4px 20px rgba(0,0,0,0.18)" : "0 2px 8px rgba(0,0,0,0.08)",
@@ -148,23 +148,19 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler") && !pathname.startsWith("/auth");
 
+  if (!shouldShowSidebar) {
+    return <div className="w-full flex-1">{children}</div>;
+  }
+
   return (
-    <SidebarProvider defaultOpen>
-      {shouldShowSidebar ? (
-        <div className="flex min-h-screen w-full">
-          <AppSidebar />
-          <SidebarInset className="flex-1">
-            <AppHeader />
-            <main className="flex-1 bg-background">
-              {children}
-            </main>
-          </SidebarInset>
-        </div>
-      ) : (
-        <div className="w-full flex-1">
+    <SidebarProvider defaultOpen className="!flex-col !h-screen">
+      <AppHeader />
+      <div className="flex flex-1 w-full min-h-0">
+        <AppSidebar />
+        <main className="flex-1 bg-background min-w-0 overflow-auto">
           {children}
-        </div>
-      )}
+        </main>
+      </div>
     </SidebarProvider>
   );
 };

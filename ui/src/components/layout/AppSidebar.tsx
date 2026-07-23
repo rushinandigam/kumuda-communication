@@ -1,53 +1,29 @@
 "use client";
 
 import {
-  ChevronLeft,
   ChevronRight,
   Home,
-  LogOut,
   type LucideIcon,
   Mail,
   Megaphone,
   MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
   Phone,
   PhoneCall,
   Settings,
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import React from "react";
 
-import { BrandLogo } from "@/components/BrandLogo";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarRail,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
-import type { LocalUser } from "@/lib/auth";
-import { useAuth } from "@/lib/auth";
+import { useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
 type SidebarNavItem = {
   title: string;
+  subtitle?: string;
   url: string;
   icon: LucideIcon;
 };
@@ -62,6 +38,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     items: [
       {
         title: "Dashboard",
+        subtitle: "Overview & analytics",
         url: "/overview",
         icon: Home,
       },
@@ -72,31 +49,37 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     items: [
       {
         title: "WhatsApp",
+        subtitle: "Chat messaging",
         url: "/whatsapp",
         icon: MessageCircle,
       },
       {
         title: "Voice",
+        subtitle: "AI voice agents",
         url: "/workflow",
         icon: Phone,
       },
       {
         title: "Dial Pad",
+        subtitle: "Manual calls",
         url: "/dial-pad",
         icon: PhoneCall,
       },
       {
         title: "Email",
+        subtitle: "Shared inbox",
         url: "/email",
         icon: Mail,
       },
       {
         title: "Campaigns",
+        subtitle: "Bulk outreach",
         url: "/campaigns",
         icon: Megaphone,
       },
       {
         title: "Contacts",
+        subtitle: "Address book",
         url: "/contacts",
         icon: Users,
       },
@@ -107,6 +90,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     items: [
       {
         title: "Settings",
+        subtitle: "Configuration",
         url: "/settings",
         icon: Settings,
       },
@@ -116,166 +100,143 @@ const NAV_SECTIONS: SidebarNavSection[] = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { state, isMobile, setOpenMobile } = useSidebar();
-  const { logout, user } = useAuth();
+  const { state, toggleSidebar, isMobile, setOpenMobile } = useSidebar();
   const isCollapsed = !isMobile && state === "collapsed";
 
   const isActive = (path: string) => pathname.startsWith(path);
 
-  const handleMobileNavClick = () => {
+  const handleNavClick = () => {
     if (isMobile) {
       setOpenMobile(false);
     }
   };
 
-  const SidebarLink = ({ item }: { item: SidebarNavItem }) => {
-    const isItemActive = isActive(item.url);
-    const Icon = item.icon;
-
+  if (isCollapsed) {
     return (
-      <SidebarMenuButton
-        asChild
-        tooltip={{ children: <p>{item.title}</p> }}
-        className={cn(
-          "rounded-xl transition-colors hover:bg-accent hover:text-accent-foreground",
-          isItemActive &&
-            "bg-brand/10 font-semibold text-brand hover:bg-brand/15 hover:text-brand"
-        )}
-      >
-        <Link
-          href={item.url}
-          onClick={handleMobileNavClick}
-          className={cn("relative", isCollapsed && "justify-center")}
-        >
-          {isItemActive && !isCollapsed && (
-            <span
-              className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-brand"
-              aria-hidden
-            />
-          )}
-          <Icon
-            className={cn(
-              "h-4 w-4 shrink-0",
-              isItemActive && "text-brand"
-            )}
-          />
-          <span
-            className={cn("min-w-0 flex-1 truncate", isCollapsed && "sr-only")}
+      <aside className="w-14 shrink-0 bg-white dark:bg-gray-950 border-r border-border h-full z-30">
+        <div className="flex flex-col items-center pt-3 gap-1 overflow-y-auto h-full border-r border-border">
+          <button
+            onClick={toggleSidebar}
+            title="Expand sidebar"
+            className="w-9 h-9 rounded-[10px] bg-brand/5 border border-brand/10 flex items-center justify-center cursor-pointer transition-all duration-150 hover:bg-brand/10"
           >
-            {item.title}
-          </span>
-        </Link>
-      </SidebarMenuButton>
-    );
-  };
+            <PanelLeftOpen size={16} className="text-brand" />
+          </button>
 
-  const displayIdentity =
-    user?.displayName ||
-    (user as { primaryEmail?: string } | undefined)?.primaryEmail ||
-    (user as LocalUser | undefined)?.email ||
-    "";
-  const userInitials =
-    displayIdentity
-      .split(/[\s@]/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((s: string) => s[0]?.toUpperCase())
-      .join("") || "U";
+          <div className="mt-4 flex flex-col items-center gap-1 w-full px-1.5">
+            {NAV_SECTIONS.flatMap((s) => s.items).map((item) => {
+              const active = isActive(item.url);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.url}
+                  href={item.url}
+                  onClick={handleNavClick}
+                  title={item.title}
+                  className={cn(
+                    "w-9 h-9 rounded-[10px] flex items-center justify-center transition-all duration-150",
+                    active
+                      ? "bg-brand/10 text-brand"
+                      : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  )}
+                >
+                  <Icon size={18} />
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
-    <Sidebar collapsible="icon" variant="floating" className="py-4">
-      <SidebarHeader className="px-2 py-3">
-        <div className="flex items-center justify-between">
-          <div className={cn("flex items-center gap-2", isCollapsed && "hidden")}>
-            <Link href="/" className="flex items-center gap-2 px-1">
-              <BrandLogo mark className="h-7" />
-              <span
-                className="text-lg font-bold tracking-tight"
-                style={{ color: "var(--brand-gold)" }}
-              >
-                KK Connect
-              </span>
-            </Link>
-          </div>
-
-          <SidebarTrigger className={cn("hover:bg-accent", isCollapsed && "mx-auto")}>
-            {isCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </SidebarTrigger>
-        </div>
-      </SidebarHeader>
-
-      <SidebarContent className={cn(isCollapsed && "px-0")}>
-        {NAV_SECTIONS.map((section, index) => (
-          <SidebarGroup
-            key={section.label ?? "overview"}
-            className={index === 0 ? "mt-2" : "mt-6"}
+    <aside className="w-[260px] shrink-0 bg-white dark:bg-gray-950 border-r border-border h-full z-30">
+      <div className="flex flex-col overflow-y-auto h-full border-r border-border">
+        {/* Collapse toggle */}
+        <div className="px-3 py-3 border-b border-border shrink-0 flex justify-end">
+          <button
+            onClick={toggleSidebar}
+            title="Collapse sidebar"
+            className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center cursor-pointer shrink-0 transition-all duration-150 hover:bg-brand/5 hover:border-brand/25"
           >
-            {section.label && (
-              <SidebarGroupLabel
-                className={cn(
-                  "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                  isCollapsed && "hidden"
-                )}
-              >
-                {section.label}
-              </SidebarGroupLabel>
-            )}
-            <SidebarMenu>
-              {section.items.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarLink item={item} />
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        ))}
-
-      </SidebarContent>
-
-      <SidebarFooter className={cn("p-3", isCollapsed && "p-2")}>
-        <div
-          className={cn(
-            "flex items-center justify-between gap-1 rounded-full border border-border/60 bg-muted/30 p-1",
-            isCollapsed && "flex-col"
-          )}
-        >
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0 cursor-pointer rounded-full border border-border/80 bg-brand text-white hover:bg-brand-dark hover:text-white"
-              >
-                <span className="text-xs font-medium">{userInitials}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-56">
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  {(user as LocalUser | undefined)?.email && (
-                    <p className="text-xs text-muted-foreground">{(user as LocalUser).email}</p>
-                  )}
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
-                <Settings className="mr-2 h-4 w-4" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <PanelLeftClose size={14} className="text-gray-500" />
+          </button>
         </div>
-      </SidebarFooter>
-      <SidebarRail />
-    </Sidebar>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-2.5 pb-4 flex flex-col gap-0.5">
+          {NAV_SECTIONS.map((section, sectionIdx) => (
+            <div key={section.label ?? "overview"} className={sectionIdx > 0 ? "mt-5" : ""}>
+              {section.label && (
+                <div className="px-3 mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  {section.label}
+                </div>
+              )}
+              <div className="flex flex-col gap-0.5">
+                {section.items.map((item) => {
+                  const active = isActive(item.url);
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.url}
+                      href={item.url}
+                      onClick={handleNavClick}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-[10px] w-full relative transition-all duration-150 no-underline",
+                        active
+                          ? "bg-brand/5"
+                          : "bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                      )}
+                    >
+                      {/* Active indicator */}
+                      <div
+                        className={cn(
+                          "absolute left-0 top-[15%] bottom-[15%] w-1 rounded-r transition-opacity duration-150 bg-brand",
+                          active ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      {/* Icon */}
+                      <div
+                        className={cn(
+                          "w-9 h-9 rounded-[9px] flex items-center justify-center shrink-0 transition-all duration-150",
+                          active ? "bg-brand/[0.08]" : "bg-transparent"
+                        )}
+                      >
+                        <Icon
+                          size={18}
+                          className={cn(
+                            "transition-colors duration-150",
+                            active ? "text-brand" : "text-gray-500"
+                          )}
+                        />
+                      </div>
+                      {/* Label */}
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className={cn(
+                            "text-sm font-semibold leading-tight transition-colors duration-150",
+                            active ? "text-foreground" : "text-gray-700 dark:text-gray-300"
+                          )}
+                        >
+                          {item.title}
+                        </div>
+                        {item.subtitle && (
+                          <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                            {item.subtitle}
+                          </div>
+                        )}
+                      </div>
+                      {/* Active chevron */}
+                      {active && <ChevronRight size={16} className="text-brand shrink-0" />}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+      </div>
+    </aside>
   );
 }
