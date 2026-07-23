@@ -467,14 +467,18 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
             # Convert PCM to MULAW
             ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
 
-            # Send to Vobiz WS
+            # Send to Vobiz WS (must use "playAudio" event with contentType/sampleRate)
             tel_ws = session.get("telephony_ws")
             if tel_ws and tel_ws.application_state == WebSocketState.CONNECTED:
                 payload = base64.b64encode(ulaw_bytes).decode("utf-8")
                 msg = json.dumps({
-                    "event": "media",
+                    "event": "playAudio",
                     "streamId": stream_id,
-                    "media": {"payload": payload},
+                    "media": {
+                        "contentType": "audio/x-mulaw",
+                        "sampleRate": 8000,
+                        "payload": payload,
+                    },
                 })
                 try:
                     await tel_ws.send_text(msg)
