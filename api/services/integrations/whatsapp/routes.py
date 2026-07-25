@@ -198,20 +198,7 @@ async def send_whatsapp_message(
                 template_name=body.template_name,
             )
         elif body.text:
-            result = await client.send_template_message(
-                to=body.to,
-                template_name="fee_pay_class_work",
-                language="en",
-                components=[{
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": body.text},
-                        {"type": "text", "text": body.text},
-                        {"type": "text", "text": body.text},
-                        {"type": "text", "text": body.text},
-                    ],
-                }],
-            )
+            result = await client.send_text_message(to=body.to, text=body.text)
             await _store_message(
                 organization_id=user.selected_organization_id,
                 phone_number=body.to,
