@@ -43,7 +43,6 @@ class WhatsAppClient:
 
     async def send_text_message(self, to: str, text: str) -> Dict[str, Any]:
         payload = {
-            "messaging_product": "whatsapp",
             "recipient_type": "individual",
             "to": self._normalize_phone(to),
             "type": "text",
@@ -59,7 +58,6 @@ class WhatsAppClient:
         components: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         payload = {
-            "messaging_product": "whatsapp",
             "recipient_type": "individual",
             "to": self._normalize_phone(to),
             "type": "template",
