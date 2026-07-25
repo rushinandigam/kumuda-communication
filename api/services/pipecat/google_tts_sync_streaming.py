@@ -37,7 +37,8 @@ class GoogleTTSSyncStreamingService(GoogleTTSService):
         self._sync_client = self._create_sync_client()
 
     def _create_sync_client(self) -> "texttospeech_v1.TextToSpeechClient":
-        creds = self._client._transport._credentials
+        transport = getattr(self._client, "_transport", None) or self._client.transport
+        creds = getattr(transport, "_credentials", None) or getattr(transport, "credentials", None)
         client_options = None
         if self._location:
             client_options = ClientOptions(
