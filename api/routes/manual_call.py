@@ -477,11 +477,9 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
                 payload = base64.b64encode(ulaw_bytes).decode("utf-8")
                 try:
                     await tel_ws.send_text(json.dumps({
-                        "event": "playAudio",
+                        "event": "media",
                         "streamId": stream_id,
                         "media": {
-                            "contentType": "audio/x-mulaw",
-                            "sampleRate": 8000,
                             "payload": payload,
                         },
                     }))
