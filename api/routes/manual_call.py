@@ -384,7 +384,11 @@ async def _initiate_pstn_call(session_id: str, session: dict, websocket: WebSock
 
 
 async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
-    """Read audio from WebRTC, convert to MULAW, send to Vobiz WS."""
+    """Read audio from WebRTC, convert to MULAW, send to Vobiz WS.
+
+    Uses two tasks: one reads frames without blocking, another sends to Vobiz.
+    This prevents WS send backpressure from causing recv() delays.
+    """
     pc: SmallWebRTCConnection = session["webrtc_connection"]
     hangup_event = session["hangup_event"]
 
@@ -410,65 +414,99 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     audio_track._receiver._enabled = True
 
     stream_id = session.get("vobiz_stream_id")
-    ratecv_state = None
+    send_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
 
     logger.info(f"[{session_id}] WebRTC→Telephony bridge started")
 
-    try:
-        while not hangup_event.is_set():
-            try:
-                frame = await asyncio.wait_for(audio_track.recv(), timeout=2.0)
-            except asyncio.TimeoutError:
-                if pc._pc.connectionState != "connected":
+    async def _recv_loop():
+        """Read WebRTC frames, resample, enqueue MULAW for sending."""
+        ratecv_state = None
+        try:
+            while not hangup_event.is_set():
+                try:
+                    frame = await asyncio.wait_for(audio_track.recv(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    if pc._pc.connectionState != "connected":
+                        break
+                    continue
+                except MediaStreamError:
                     break
-                continue
-            except MediaStreamError:
-                break
 
-            if frame is None:
-                continue
+                if frame is None:
+                    continue
 
-            # Stereo s16 → mono PCM bytes
-            frame_array = frame.to_ndarray()
-            if frame_array.ndim > 1 and frame_array.shape[0] > 1:
-                pcm_bytes = frame_array.mean(axis=0).astype(np.int16).tobytes()
-            elif frame_array.ndim > 1:
-                pcm_bytes = frame_array[0].astype(np.int16).tobytes()
-            else:
-                pcm_bytes = frame_array.astype(np.int16).tobytes()
+                # Stereo s16 → mono: take left channel to preserve volume
+                frame_array = frame.to_ndarray()
+                if frame_array.ndim > 1:
+                    pcm_bytes = frame_array[0].astype(np.int16).tobytes()
+                else:
+                    pcm_bytes = frame_array.astype(np.int16).tobytes()
 
-            # Resample 48kHz → 8kHz
-            if frame.sample_rate != 8000:
-                pcm_bytes, ratecv_state = audioop.ratecv(
-                    pcm_bytes, 2, 1, frame.sample_rate, 8000, ratecv_state
-                )
+                # Resample to 8kHz
+                if frame.sample_rate != 8000:
+                    pcm_bytes, ratecv_state = audioop.ratecv(
+                        pcm_bytes, 2, 1, frame.sample_rate, 8000, ratecv_state
+                    )
 
-            # PCM → MULAW and send immediately (no batching = lowest latency)
-            ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
+                # PCM → MULAW
+                ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
 
-            tel_ws = session.get("telephony_ws")
-            if not tel_ws or tel_ws.application_state != WebSocketState.CONNECTED:
-                break
+                # Enqueue for send (drop oldest if full to avoid accumulating delay)
+                if send_queue.full():
+                    try:
+                        send_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                await send_queue.put(ulaw_bytes)
+        except asyncio.CancelledError:
+            pass
 
-            payload = base64.b64encode(ulaw_bytes).decode("utf-8")
-            try:
-                await tel_ws.send_text(json.dumps({
-                    "event": "playAudio",
-                    "streamId": stream_id,
-                    "media": {
-                        "contentType": "audio/x-mulaw",
-                        "sampleRate": 8000,
-                        "payload": payload,
-                    },
-                }))
-            except Exception:
-                break
+    async def _send_loop():
+        """Drain queue and send MULAW packets to Vobiz WS."""
+        try:
+            while not hangup_event.is_set():
+                try:
+                    ulaw_bytes = await asyncio.wait_for(send_queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
 
-    except asyncio.CancelledError:
-        pass
+                tel_ws = session.get("telephony_ws")
+                if not tel_ws or tel_ws.application_state != WebSocketState.CONNECTED:
+                    break
+
+                payload = base64.b64encode(ulaw_bytes).decode("utf-8")
+                try:
+                    await tel_ws.send_text(json.dumps({
+                        "event": "playAudio",
+                        "streamId": stream_id,
+                        "media": {
+                            "contentType": "audio/x-mulaw",
+                            "sampleRate": 8000,
+                            "payload": payload,
+                        },
+                    }))
+                except Exception:
+                    break
+        except asyncio.CancelledError:
+            pass
+
+    recv_task = asyncio.create_task(_recv_loop())
+    send_task = asyncio.create_task(_send_loop())
+
+    try:
+        await asyncio.wait(
+            [recv_task, send_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
     except Exception as e:
         logger.error(f"[{session_id}] WebRTC→Telephony bridge error: {e}", exc_info=True)
     finally:
+        recv_task.cancel()
+        send_task.cancel()
+        try:
+            await asyncio.gather(recv_task, send_task, return_exceptions=True)
+        except Exception:
+            pass
         logger.info(f"[{session_id}] WebRTC→Telephony bridge ended")
 
 
