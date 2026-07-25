@@ -19,6 +19,24 @@ from api.utils.url_security import validate_user_configured_service_url
 from api.services.pipecat.google_tts_sync_streaming import GoogleTTSSyncStreamingService
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
+
+# Patch GoogleSTTService to add cloud-platform scope to service account credentials.
+# The upstream code creates credentials without scopes, causing 403 errors.
+_original_google_stt_init = GoogleSTTService.__init__
+
+
+def _patched_google_stt_init(self, **kwargs):
+    _original_google_stt_init(self, **kwargs)
+    transport = getattr(self._client, "_transport", None) or getattr(self._client, "transport", None)
+    if transport:
+        creds = getattr(transport, "_credentials", None)
+        if creds and hasattr(creds, "with_scopes") and not getattr(creds, "scopes", None):
+            transport._credentials = creds.with_scopes(
+                ["https://www.googleapis.com/auth/cloud-platform"]
+            )
+
+
+GoogleSTTService.__init__ = _patched_google_stt_init
 from pipecat.services.google.tts import GoogleTTSService, GoogleTTSSettings
 from pipecat.services.google.vertex.llm import (
     GoogleVertexLLMService,
