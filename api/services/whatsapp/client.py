@@ -73,6 +73,7 @@ class WhatsAppClient:
         return await self._send(payload)
 
     async def _send(self, payload: Dict[str, Any], retries: int = 3) -> Dict[str, Any]:
+        logger.info(f"WhatsApp sending to {self._messages_url}: {payload}")
         for attempt in range(retries):
             try:
                 response = await self._client.post(self._messages_url, json=payload)
