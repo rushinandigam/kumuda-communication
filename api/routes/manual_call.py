@@ -383,45 +383,12 @@ async def _initiate_pstn_call(session_id: str, session: dict, websocket: WebSock
         })
 
 
-async def _flush_to_vobiz(session, session_id, stream_id, pcm_buffer, src_rate, ratecv_state):
-    """Resample PCM buffer to 8kHz MULAW and send to Vobiz. Returns new ratecv_state or False if WS closed."""
-    pcm_bytes = bytes(pcm_buffer)
-
-    if src_rate != 8000:
-        pcm_bytes, ratecv_state = audioop.ratecv(
-            pcm_bytes, 2, 1, src_rate, 8000, ratecv_state
-        )
-
-    ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
-
-    tel_ws = session.get("telephony_ws")
-    if tel_ws and tel_ws.application_state == WebSocketState.CONNECTED:
-        payload = base64.b64encode(ulaw_bytes).decode("utf-8")
-        msg = json.dumps({
-            "event": "playAudio",
-            "streamId": stream_id,
-            "media": {
-                "contentType": "audio/x-mulaw",
-                "sampleRate": 8000,
-                "payload": payload,
-            },
-        })
-        try:
-            await tel_ws.send_text(msg)
-        except Exception as e:
-            logger.warning(f"[{session_id}] Failed to send to telephony WS: {e}")
-            return False
-    else:
-        return False
-    return ratecv_state
-
-
 async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     """Read audio from WebRTC, convert to MULAW, send to Vobiz WS."""
     pc: SmallWebRTCConnection = session["webrtc_connection"]
     hangup_event = session["hangup_event"]
 
-    # Wait for WebRTC ICE to be connected (check underlying aiortc state directly)
+    # Wait for WebRTC ICE to be connected
     for _ in range(100):  # up to 10 seconds
         state = pc._pc.connectionState
         if state == "connected":
@@ -432,29 +399,20 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
         await asyncio.sleep(0.1)
 
     if pc._pc.connectionState != "connected":
-        logger.error(f"[{session_id}] WebRTC not connected after 10s (state={pc._pc.connectionState}), cannot bridge audio")
+        logger.error(f"[{session_id}] WebRTC not connected after 10s (state={pc._pc.connectionState})")
         return
 
-    # Get the audio input track from WebRTC
     audio_track = pc.audio_input_track()
     if not audio_track:
         logger.error(f"[{session_id}] No audio input track available from WebRTC")
         return
 
-    # recv() auto-enables the receiver, but pre-enable to avoid any race
     audio_track._receiver._enabled = True
 
     stream_id = session.get("vobiz_stream_id")
     ratecv_state = None
-    # Accumulate frames to send in ~60ms batches (3 x 20ms frames) to reduce WS overhead
-    BATCH_FRAMES = 3
-    pcm_buffer = bytearray()
-    frames_in_batch = 0
-    src_rate = 48000
 
-    logger.info(f"[{session_id}] WebRTC→Telephony bridge started, stream_id={stream_id}")
-
-    frame_count = 0
+    logger.info(f"[{session_id}] WebRTC→Telephony bridge started")
 
     try:
         while not hangup_event.is_set():
@@ -463,45 +421,48 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
             except asyncio.TimeoutError:
                 if pc._pc.connectionState != "connected":
                     break
-                # Flush any buffered audio on timeout
-                if pcm_buffer:
-                    await _flush_to_vobiz(session, session_id, stream_id, pcm_buffer, src_rate, ratecv_state)
-                    pcm_buffer.clear()
-                    frames_in_batch = 0
                 continue
             except MediaStreamError:
                 break
 
             if frame is None:
-                await asyncio.sleep(0.01)
                 continue
 
-            frame_count += 1
-            src_rate = frame.sample_rate
-            if frame_count == 1:
-                logger.info(f"[{session_id}] First WebRTC frame: samples={frame.samples}, rate={frame.sample_rate}, format={frame.format.name}, layout={frame.layout.name}")
-
-            # Convert av.AudioFrame to raw PCM bytes (s16 mono)
+            # Stereo s16 → mono PCM bytes
             frame_array = frame.to_ndarray()
             if frame_array.ndim > 1 and frame_array.shape[0] > 1:
-                mono = frame_array.mean(axis=0).astype(np.int16)
+                pcm_bytes = frame_array.mean(axis=0).astype(np.int16).tobytes()
             elif frame_array.ndim > 1:
-                mono = frame_array[0].astype(np.int16)
+                pcm_bytes = frame_array[0].astype(np.int16).tobytes()
             else:
-                mono = frame_array.astype(np.int16)
+                pcm_bytes = frame_array.astype(np.int16).tobytes()
 
-            pcm_buffer.extend(mono.tobytes())
-            frames_in_batch += 1
-
-            # Send every BATCH_FRAMES frames (~60ms)
-            if frames_in_batch >= BATCH_FRAMES:
-                ratecv_state = await _flush_to_vobiz(
-                    session, session_id, stream_id, pcm_buffer, src_rate, ratecv_state
+            # Resample 48kHz → 8kHz
+            if frame.sample_rate != 8000:
+                pcm_bytes, ratecv_state = audioop.ratecv(
+                    pcm_bytes, 2, 1, frame.sample_rate, 8000, ratecv_state
                 )
-                if ratecv_state is False:
-                    break  # WS closed
-                pcm_buffer.clear()
-                frames_in_batch = 0
+
+            # PCM → MULAW and send immediately (no batching = lowest latency)
+            ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
+
+            tel_ws = session.get("telephony_ws")
+            if not tel_ws or tel_ws.application_state != WebSocketState.CONNECTED:
+                break
+
+            payload = base64.b64encode(ulaw_bytes).decode("utf-8")
+            try:
+                await tel_ws.send_text(json.dumps({
+                    "event": "playAudio",
+                    "streamId": stream_id,
+                    "media": {
+                        "contentType": "audio/x-mulaw",
+                        "sampleRate": 8000,
+                        "payload": payload,
+                    },
+                }))
+            except Exception:
+                break
 
     except asyncio.CancelledError:
         pass
