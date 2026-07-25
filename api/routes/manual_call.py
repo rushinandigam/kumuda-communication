@@ -386,8 +386,8 @@ async def _initiate_pstn_call(session_id: str, session: dict, websocket: WebSock
 async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     """Read audio from WebRTC, convert to MULAW, send to Vobiz WS.
 
-    Matches the same pattern as VobizFrameSerializer.serialize() in the AI pipeline:
-    each audio chunk is sent as a playAudio event immediately.
+    Accumulates ~200ms of audio before sending to reduce per-packet overhead
+    and avoid Vobiz's jitter buffer adding latency to many tiny packets.
     """
     pc: SmallWebRTCConnection = session["webrtc_connection"]
     hangup_event = session["hangup_event"]
@@ -416,6 +416,11 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
     stream_id = session.get("vobiz_stream_id")
     ratecv_state = None
 
+    # Accumulate MULAW bytes and send in ~200ms chunks (1600 bytes at 8kHz)
+    # to reduce packet overhead and Vobiz jitter-buffer latency.
+    CHUNK_TARGET_BYTES = 1600  # 200ms of 8kHz MULAW
+    ulaw_buffer = bytearray()
+
     logger.info(f"[{session_id}] WebRTC→Telephony bridge started")
 
     try:
@@ -425,6 +430,24 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
             except asyncio.TimeoutError:
                 if pc._pc.connectionState != "connected":
                     break
+                # Flush any accumulated audio on timeout
+                if ulaw_buffer:
+                    tel_ws = session.get("telephony_ws")
+                    if tel_ws and tel_ws.application_state == WebSocketState.CONNECTED:
+                        payload = base64.b64encode(bytes(ulaw_buffer)).decode("utf-8")
+                        try:
+                            await tel_ws.send_text(json.dumps({
+                                "event": "playAudio",
+                                "streamId": stream_id,
+                                "media": {
+                                    "contentType": "audio/x-mulaw",
+                                    "sampleRate": 8000,
+                                    "payload": payload,
+                                },
+                            }))
+                        except Exception:
+                            break
+                        ulaw_buffer.clear()
                 continue
             except MediaStreamError:
                 break
@@ -445,27 +468,30 @@ async def _bridge_webrtc_to_telephony(session_id: str, session: dict):
                     pcm_bytes, 2, 1, frame.sample_rate, 8000, ratecv_state
                 )
 
-            # PCM → MULAW
+            # PCM → MULAW and accumulate
             ulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
+            ulaw_buffer.extend(ulaw_bytes)
 
-            tel_ws = session.get("telephony_ws")
-            if not tel_ws or tel_ws.application_state != WebSocketState.CONNECTED:
-                break
+            # Send when we have enough accumulated (~200ms)
+            if len(ulaw_buffer) >= CHUNK_TARGET_BYTES:
+                tel_ws = session.get("telephony_ws")
+                if not tel_ws or tel_ws.application_state != WebSocketState.CONNECTED:
+                    break
 
-            # Send as playAudio — same format as VobizFrameSerializer
-            payload = base64.b64encode(ulaw_bytes).decode("utf-8")
-            try:
-                await tel_ws.send_text(json.dumps({
-                    "event": "playAudio",
-                    "streamId": stream_id,
-                    "media": {
-                        "contentType": "audio/x-mulaw",
-                        "sampleRate": 8000,
-                        "payload": payload,
-                    },
-                }))
-            except Exception:
-                break
+                payload = base64.b64encode(bytes(ulaw_buffer)).decode("utf-8")
+                try:
+                    await tel_ws.send_text(json.dumps({
+                        "event": "playAudio",
+                        "streamId": stream_id,
+                        "media": {
+                            "contentType": "audio/x-mulaw",
+                            "sampleRate": 8000,
+                            "payload": payload,
+                        },
+                    }))
+                except Exception:
+                    break
+                ulaw_buffer.clear()
 
     except asyncio.CancelledError:
         pass
